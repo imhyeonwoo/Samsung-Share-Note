@@ -1,57 +1,62 @@
-# Samsung Share Note
+# Folio — 나만의 공유 노션
 
-삼성물산 건설부문 반도체 생산설비(전기전자) 면접 준비를 위한 **공유 노트 + 작업 관리 웹사이트**입니다.
+GitHub Pages + Firebase로 만든 노션형 공동 편집 워크스페이스입니다.
+
+배포 예정 주소: https://imhyeonwoo.github.io/Samsung-Share-Note/
 
 ## 기능
 
-- 대시보드: 전체 작업 / 진행 중 / 공유 노트 현황
-- 공유 노트: 분류, 작성, 수정, 삭제, 내용 검색
-- 작업 보드: 할 일 / 진행 중 / 완료, 담당자, 우선순위, 마감일
-- 모바일 대응 레이아웃
-- Firebase 연동 시 Google 로그인, 멤버 제한, Firestore 실시간 공유
+- 페이지 트리와 하위 페이지 생성, 검색, 이동 및 삭제
+- 페이지 제목·이모지 아이콘 변경
+- 텍스트, 제목 1~3, 글머리 목록, 번호 목록, 체크리스트, 인용, 코드 및 구분선 블록
+- 블록 추가, 종류 변경, 이동, 복제, 삭제
+- Firebase 연결 시 자동 저장 및 실시간 동기화
+- 공유 링크를 가진 누구나 회원가입이나 로그인 화면 없이 공동 편집
+- 모바일에서도 사용 가능
 
-> **현재 기본 상태는 체험 모드입니다.** `firebase-config.js`를 설정하기 전까지 모든 자료는 **각 사용자 브라우저의 localStorage에만** 저장됩니다. 브라우저/기기를 바꿔도 동기화되지 않습니다. 브라우저 데이터 삭제 시 사라질 수 있으므로 중요한 자료를 넣지 마세요.
+현재는 초기 버전으로, 이미지/파일 업로드, 표 데이터베이스, 댓글, 권한별 초대, 수정 이력, 삭제 복원은 제공되지 않습니다. 같은 블록을 동시에 편집하면 마지막 저장 내용이 우선할 수 있습니다.
 
-## 배포 — GitHub Pages
+## 1. GitHub Pages 배포
 
-1. GitHub 저장소의 **Settings → Pages**로 이동합니다.
-2. **Build and deployment → Deploy from a branch**를 선택합니다.
-3. **Branch: main / (root)**를 선택하고 Save 합니다.
-4. 배포가 완료되면 `https://imhyeonwoo.github.io/Samsung-Share-Note/`로 접속합니다.
+1. 저장소 Settings → General에서 필요 시 Public으로 변경 (GitHub Free에서는 Pages를 위해 일반적으로 공개 저장소 필요)
+2. Settings → Pages → Build and deployment
+3. Deploy from a branch → main / (root) 선택 후 Save
+4. 배포 완료 후 위의 주소 방문
 
-**주의:** GitHub Free에서는 일반적으로 Pages 게시를 위해 저장소를 **Public**으로 설정해야 합니다. 현재 저장소가 Private이라면 Settings → General → Danger Zone → Change repository visibility에서 변경하거나, Pages 지원 플랜을 이용하세요. Public 레포지토리에 올린 소스/설정값은 공개됩니다. 면접 내용이나 개인정보를 이 저장소의 파일로 커밋하지 말고 로그인 보호되는 Firestore에만 저장하세요.
+Public 저장소의 코드와 Firebase 웹 설정값은 누구에게나 공개됩니다. 실제 문서 내용을 GitHub 저장소에 올리지 마세요.
 
-## 팀 공동 작업 활성화 — Firebase
+## 2. Firebase 연결 — 실시간 공유에 필수
 
-1. [Firebase Console](https://console.firebase.google.com/)에서 새 프로젝트를 만듭니다.
-2. 프로젝트 설정 → **웹 앱 추가** → Firebase SDK 설정 객체(`firebaseConfig`)를 복사하여 저장소의 `firebase-config.js`를 수정합니다. Firebase의 웹 앱 설정은 공개용 식별자이지만 **서비스 계정 개인 키/관리자 토큰 등 비밀은 절대 업로드하지 마세요.**
-3. **Authentication → Sign-in method → Google** 로그인 제공업체를 활성화합니다.
-4. **Authentication → Settings → Authorized domains**에 `imhyeonwoo.github.io`를 추가합니다. 프로젝트 생성 환경에 따라 `localhost`도 추가해야 할 수 있습니다.
-5. **Firestore Database → Create database**를 생성하고, **Rules** 탭에서 이 저장소의 `firestore.rules`를 그대로 붙여 넣어 **Publish**합니다. 테스트 모드의 전면 허용 규칙을 그대로 사용하지 마세요.
-6. GitHub Pages 사이트를 열고 먼저 관리자 계정으로 로그인한 뒤 **워크스페이스 시작하기**를 누릅니다. 첫 생성자의 Google 계정이 관리자입니다. 다른 팀원은 아직 접근할 수 없습니다.
-7. 로그인 후 **팀 설정**에서 함께 작업할 동료의 **Google 계정 이메일**을 추가합니다. 그 뒤 팀원은 자신의 Google 계정으로 로그인하여 공유 자료를 읽고 수정할 수 있습니다.
+1. https://console.firebase.google.com/ 에서 프로젝트를 만듭니다.
+2. 프로젝트 설정에서 웹 앱을 추가하고 Firebase 웹 설정 객체를 확인합니다.
+3. 저장소의 firebase-config.js 파일에서 REPLACE_ME 등의 값을 Firebase 웹 설정값으로 교체합니다. Firebase Admin SDK 개인 키, 서비스 계정 JSON, 관리자 토큰, 비밀번호는 절대 업로드하지 마세요.
+4. Authentication → Sign-in method에서 Anonymous(익명) 로그인 제공업체를 활성화합니다. 사용자는 로그인 화면을 보지 않지만 브라우저가 Firebase 익명 인증을 수행합니다.
+5. Firestore Database를 생성하고 Rules 탭에서 저장소의 firestore.rules 내용을 그대로 붙여넣어 Publish합니다. 테스트용 전체 허용 규칙을 그대로 운영하지 마세요.
+6. GitHub Pages를 새로고침합니다. 브라우저에서 고유 워크스페이스 주소가 생성되고 공유 버튼을 눌러 주소를 복사할 수 있습니다.
+7. 다른 사람은 그 *전체 주소*로 접속하면 같은 페이지와 본문을 바로 편집할 수 있습니다.
 
-## 보안과 사용 범위
+firebase-config.js가 미설정 상태면 로컬 브라우저의 체험 모드입니다. 이 경우 다른 사람에게 공유되지 않으며 브라우저 데이터 삭제 시 사라집니다. 기존 체험 모드 데이터는 Firebase로 자동 이관되지 않습니다.
 
-- Firestore의 **노트/작업 전체가 등록된 팀원 사이에서 공동 편집 가능**하며, 변경 기록/세밀한 권한 분리는 아직 구현되어 있지 않습니다.
-- 최초 워크스페이스 생성자는 팀원 추가·삭제 가능, 일반 팀원은 자료 편집 가능.
-- 팀원 이메일과 작업 내용은 Firebase 프로젝트에 저장되며, 이 앱에는 별도의 서버가 없습니다.
-- Firestore 보안 규칙 배포와 초기 관리자 설정을 완료하기 전에는 팀 공유용으로 쓰지 마세요.
-- 여러 브라우저에서 동시에 변경 시 마지막 저장 내용이 적용될 수 있습니다.
-- `firebase-config.js`가 채워지면 기존 브라우저 체험 데이터는 자동으로 Firestore에 이관되지 않습니다.
+## 공유 링크에 관한 주의사항
 
-## 파일 구조
+공유할 때는 사이트 주소만이 아니라 끝에 #space= 및 48자리 식별자가 붙은 전체 URL을 전달해야 합니다. 각 워크스페이스의 식별자는 브라우저가 생성한 192비트 난수입니다.
 
-```text
-index.html           페이지 시작점
-styles.css           반응형 화면 디자인
-app.js               노트/작업 UI 및 데이터 처리
-firebase-config.js   직접 입력할 Firebase 웹 앱 설정
-firestore.rules      Firestore 접근 정책 (Firebase Console에 별도 적용)
-```
+- 링크를 가진 누구나 읽기, 추가, 수정, 삭제가 가능합니다.
+- 이 방식은 비밀 URL을 이용하는 편의형 공유이지 사용자별 인증이나 엄격한 접근 통제가 아닙니다.
+- 링크가 재전송되거나 노출되면 제3자도 편집할 수 있습니다.
+- 삭제 복구 및 편집 이력 기능은 없습니다. 중요하거나 민감한 자료를 넣지 마세요.
+- Firebase 익명 인증을 사용하며, 공개 편집은 도배/악용이나 사용량 급증 위험이 있습니다. Firebase 사용량 및 예산 알림을 설정하고 규모가 커질 경우 App Check, 백업, 서버 측 권한 제한 등을 추가하세요.
 
-## 개발
+## 로컬 실행
 
-빌드 도구는 필요하지 않습니다. ES 모듈로 동작하므로 로컬에서는 `python -m http.server 8000` 실행 후 `http://localhost:8000`으로 확인하세요.
+별도의 빌드 도구가 필요하지 않습니다. 프로젝트 폴더에서 python -m http.server 8000을 실행하고 http://localhost:8000 으로 접속합니다.
 
-향후 기능 후보: 댓글/수정 이력, 파일 첨부, 마감일 알림, 프로젝트별 보드.
+## 프로젝트 구조
+
+- index.html — 문서 시작점
+- styles.css — 반응형 노션 스타일 UI
+- app.js — 페이지 트리, 블록 편집, 검색, 동기화
+- firebase-config.js — Firebase SDK 웹 설정값
+- firestore.rules — 실제 Firestore에 적용할 보안 규칙
+
+추천 다음 작업: 삭제 복원 및 버전 기록, 이미지·파일 업로드, 드래그 앤 드롭, 슬래시 명령, 실시간 동시 편집 충돌 해결.
