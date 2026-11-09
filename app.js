@@ -1,4 +1,4 @@
-import { firebaseConfig } from './firebase-config.js';
+import { firebaseConfig } from './firebase-config.js?v=20261109-firebase-key-fix2';
 
 const app=document.getElementById('app');
 const modal=document.getElementById('modal');
