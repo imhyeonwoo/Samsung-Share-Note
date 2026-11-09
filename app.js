@@ -49,6 +49,7 @@ function loadImage(id){
    document.querySelectorAll('[data-image-view="'+id+'"]').forEach(img=>{
     img.src=doc.data().dataUrl;img.alt=doc.data().name||'첨부 이미지';img.hidden=false;
     img.closest('.image-frame')?.classList.remove('waiting');
+    const caption=img.closest('.image-frame')?.querySelector('figcaption');if(caption)caption.textContent=doc.data().name||'첨부 이미지';
    });
   }else{document.querySelectorAll('[data-image-status="'+id+'"]').forEach(el=>el.textContent='이미지를 찾을 수 없습니다.')}
  }).catch(err=>document.querySelectorAll('[data-image-status="'+id+'"]').forEach(el=>el.textContent='이미지 불러오기 실패: '+err.message)).finally(()=>state.imageLoading.delete(id))
