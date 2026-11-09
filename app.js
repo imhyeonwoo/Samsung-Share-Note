@@ -62,7 +62,7 @@ function refreshImages(){
 function sortByOrder(a,b){return (a.order??0)-(b.order??0) || (a.createdAt||'').localeCompare(b.createdAt||'')}
 function pageBlocks(pid){return state.blocks.filter(b=>b.pageId===pid).sort(sortByOrder)}
 function children(pid){return state.pages.filter(p=>(p.parentId||null)===(pid||null)).sort(sortByOrder)}
-function saveDemo(){try{localStorage.setItem(demoKey,JSON.stringify({pages:state.pages,blocks:state.blocks}))}catch{notice('저장 공간이 부족하거나 차단됐습니다.')}}
+function saveDemo(){try{localStorage.setItem(demoKey,JSON.stringify({pages:state.pages,blocks:state.blocks,images:[...state.images]}))}catch{notice('저장 공간이 부족하거나 차단됐습니다.')}}
 function seedPage(){const timestamp=now();return {id:'welcome',title:'시작 페이지',icon:'🌿',parentId:null,order:0,createdAt:timestamp,updatedAt:timestamp}}
 function seedBlocks(){const timestamp=now();return [
 {id:'intro',pageId:'welcome',type:'h2',text:'나만의 워크스페이스',checked:false,order:1024,createdAt:timestamp,updatedAt:timestamp},
@@ -70,7 +70,7 @@ function seedBlocks(){const timestamp=now();return [
 {id:'todo1',pageId:'welcome',type:'todo',text:'새 페이지 만들어 보기',checked:false,order:3072,createdAt:timestamp,updatedAt:timestamp},
 {id:'todo2',pageId:'welcome',type:'todo',text:'공유 링크 복사하기',checked:false,order:4096,createdAt:timestamp,updatedAt:timestamp}
 ]}
-function initDemo(){try{const saved=JSON.parse(localStorage.getItem(demoKey)||'null');if(saved&&Array.isArray(saved.pages)&&Array.isArray(saved.blocks)){state.pages=saved.pages;state.blocks=saved.blocks}else{state.pages=[seedPage()];state.blocks=seedBlocks();saveDemo()}}catch{state.pages=[seedPage()];state.blocks=seedBlocks()}state.ready=true;state.current=state.pages[0]?.id||null;render()}
+function initDemo(){try{const saved=JSON.parse(localStorage.getItem(demoKey)||'null');if(saved&&Array.isArray(saved.pages)&&Array.isArray(saved.blocks)){state.pages=saved.pages;state.blocks=saved.blocks;state.images=new Map(Array.isArray(saved.images)?saved.images:[])}else{state.pages=[seedPage()];state.blocks=seedBlocks();saveDemo()}}catch{state.pages=[seedPage()];state.blocks=seedBlocks()}state.ready=true;state.current=state.pages[0]?.id||null;render()}
 function pagesColl(){return fb.collection(fb.db,'spaces',space,'pages')}
 function blocksColl(){return fb.collection(fb.db,'spaces',space,'blocks')}
 async function initCloud(){
@@ -279,17 +279,19 @@ async function createInlinePage(sourceBlockId=null){
 }
 function slashQuery(input){
  const q=String(input||'').trim().toLowerCase();
- return /^[/\\](?:|p|pa|pag|page|페|페이|페이지)$/.test(q);
+ return /^[/\\](?:|p|pa|pag|page|페|페이|페이지|i|im|img|ima|imag|image|이|이미|이미지)$/.test(q);
 }
+function slashPageQuery(input){return /^[/\\](?:|p|pa|pag|page|페|페이|페이지)$/.test(String(input||'').trim().toLowerCase())}
 function showSlashMenu(blockId){
  document.querySelector('.slash-menu')?.remove();
  const row=app.querySelector('[data-row="'+blockId+'"]');
  if(!row)return;
  const menu=document.createElement('div');
  menu.className='slash-menu';
- menu.innerHTML='<button class="slash-command" type="button"><span class="slash-command-icon">📄</span><span><b>새 하위 페이지</b><small>/page · Enter로 만들기</small></span><span class="slash-command-key">↵</span></button>';
+ menu.innerHTML='<button class="slash-command" type="button" data-slash="page"><span class="slash-command-icon">📄</span><span><b>새 하위 페이지</b><small>/page · Enter로 만들기</small></span><span class="slash-command-key">↵</span></button><button class="slash-command" type="button" data-slash="image"><span class="slash-command-icon">🖼️</span><span><b>이미지 삽입</b><small>/image · 업로드 파일 선택</small></span></button>';
  menu.addEventListener('pointerdown',ev=>ev.preventDefault());
- menu.querySelector('button').addEventListener('click',()=>createInlinePage(blockId));
+ menu.querySelector('[data-slash="page"]').addEventListener('click',()=>createInlinePage(blockId));
+ menu.querySelector('[data-slash="image"]').addEventListener('click',()=>{menu.remove();chooseImageFile(blockId)});
  row.appendChild(menu);
 }
 
@@ -305,6 +307,132 @@ async function createBlock(afterId=null,type='text'){
  localUpdate('blocks',item);render(true);focusBlock(item.id);
  try{await put('blocks',item)}catch(err){notice('블록 생성 실패: '+err.message)}
 }
+
+const MAX_IMAGE_DATA_URL=650000; // Base64 characters; comfortably below Firestore's 1 MiB document limit.
+function slashImageQuery(value){return /^[/\\](?:i|im|img|ima|imag|image|이|이미|이미지)$/.test(String(value||'').trim().toLowerCase())}
+function imageContext(sourceBlockId=null,afterId=null){
+ const source=sourceBlockId?blockById(sourceBlockId):null;
+ const replaceId=source && (!source.text.trim()||slashImageQuery(source.text))?source.id:null;
+ return {pageId:source?.pageId||state.current,replaceId,afterId:replaceId?null:(afterId||source?.id||null)}
+}
+function chooseImageFile(sourceBlockId=null,afterId=null){
+ const context=imageContext(sourceBlockId,afterId);
+ if(!pageById(context.pageId)){notice('먼저 페이지를 열어 주세요.');return}
+ const input=document.createElement('input');
+ input.type='file';input.accept='image/png,image/jpeg,image/webp';
+ input.setAttribute('aria-label','이미지 파일 선택');
+ input.style.display='none';
+ document.body.appendChild(input);
+ input.addEventListener('change',async()=>{
+  const file=input.files?.[0];input.remove();
+  if(file)await uploadImage(file,context)
+ },{once:true});
+ input.addEventListener('cancel',()=>input.remove(),{once:true});
+ input.click();
+}
+async function compressImage(file){
+ if(!['image/png','image/jpeg','image/webp'].includes(file.type))throw Error('PNG, JPEG, WebP 이미지만 지원합니다.');
+ if(file.size>15*1024*1024)throw Error('원본 이미지 크기는 15MB 이하여야 합니다.');
+ const fileUrl=URL.createObjectURL(file);
+ let img;
+ try{
+  img=await new Promise((resolve,reject)=>{
+   const i=new Image();
+   i.onload=()=>resolve(i);
+   i.onerror=()=>reject(Error('이미지를 열 수 없습니다.'));
+   i.src=fileUrl
+  });
+ }finally{URL.revokeObjectURL(fileUrl)}
+ if(!img.naturalWidth||!img.naturalHeight)throw Error('이미지 크기를 확인할 수 없습니다.');
+ const canvas=document.createElement('canvas');
+ const ctx=canvas.getContext('2d');
+ if(!ctx)throw Error('이미지 압축을 지원하지 않는 브라우저입니다.');
+ let scale=Math.min(1,1800/Math.max(img.naturalWidth,img.naturalHeight));
+ let quality=.9;
+ for(let attempt=0;attempt<18;attempt++){
+  canvas.width=Math.max(1,Math.round(img.naturalWidth*scale));
+  canvas.height=Math.max(1,Math.round(img.naturalHeight*scale));
+  // White background avoids black transparency when a JPEG fallback is used.
+  ctx.fillStyle='#ffffff';ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.drawImage(img,0,0,canvas.width,canvas.height);
+  let dataUrl=canvas.toDataURL('image/webp',quality);
+  if(!dataUrl.startsWith('data:image/webp;'))dataUrl=canvas.toDataURL('image/jpeg',quality);
+  if(dataUrl.length<=MAX_IMAGE_DATA_URL)return dataUrl;
+  if(quality>.55)quality=Math.max(.55,quality-.11);else{scale*=.82;quality=.8}
+ }
+ throw Error('이미지를 더 압축할 수 없습니다. 다른 이미지를 사용해 주세요.')
+}
+async function saveImageBlock(text,context,asset=null){
+ if(!pageById(context.pageId))throw Error('페이지가 삭제되어 이미지를 삽입할 수 없습니다.');
+ const old=context.replaceId?blockById(context.replaceId):null;
+ const timestamp=now();
+ const block=old?{...old,type:'text',text,checked:false,updatedAt:timestamp}:
+  {id:uuid(),pageId:context.pageId,type:'text',text,checked:false,order:afterOrder(context.pageId,context.afterId),createdAt:timestamp,updatedAt:timestamp};
+ const assetId=asset?.id;
+ if(state.mode==='cloud'){
+  // Create the asset before publishing a reference to it, avoiding broken links for other editors.
+  if(asset)await fb.setDoc(fb.doc(imageColl(),asset.id),asset);
+  try{await put('blocks',block)}
+  catch(err){
+   if(asset)await fb.deleteDoc(fb.doc(imageColl(),asset.id)).catch(()=>{});
+   throw err
+  }
+ }else{
+  if(asset)state.images.set(asset.id,asset);
+  localUpdate('blocks',block);
+  saveDemo()
+ }
+ if(old)clearPending('blocks',old.id);
+ if(state.mode==='cloud'){localUpdate('blocks',block);if(asset)state.images.set(asset.id,asset)}
+ if(state.current===context.pageId && state.screen==='page')render(true);
+ if(assetId)document.querySelectorAll('[data-image-view="'+assetId+'"]').forEach(el=>{el.src=asset.dataUrl;el.hidden=false;el.closest('.image-frame')?.classList.remove('waiting')});
+ notice('이미지를 삽입했어요.')
+}
+async function uploadImage(file,context){
+ try{
+  notice('이미지를 최적화하는 중…');
+  const dataUrl=await compressImage(file);
+  const asset={id:uuid(),pageId:context.pageId,name:file.name.slice(0,120),dataUrl,bytes:imageByteSize(dataUrl),createdAt:now()};
+  await saveImageBlock(imageLinkText(asset.id),context,asset);
+ }catch(err){
+  notice(err.code==='permission-denied'?'이미지 저장 권한이 없습니다. GitHub의 최신 firestore.rules를 Firebase에서 다시 게시해 주세요.':'이미지 업로드 실패: '+err.message)
+ }
+}
+async function addImageURL(sourceId=null){
+ const entered=prompt('이미지 주소(https://)를 붙여넣어 주세요.');
+ if(entered===null)return;
+ try{
+  const u=new URL(entered.trim());
+  if(u.protocol!=='https:'||u.href.length>1800)throw Error('1800자 이하의 HTTPS 이미지 주소를 사용해 주세요.');
+  await saveImageBlock(imageURLText(u.href),imageContext(sourceId));
+ }catch(err){notice('이미지 주소 오류: '+err.message)}
+}
+function handleImagePaste(ev){
+ const item=Array.from(ev.clipboardData?.items||[]).find(i=>i.type.startsWith('image/'));
+ if(!item)return;
+ const file=item.getAsFile();
+ if(!file)return;
+ ev.preventDefault();
+ const field=ev.target.closest('[data-block-edit]');
+ const source=field?blockById(field.dataset.blockEdit):null;
+ const replace=source && (source.text.trim()===''||slashImageQuery(source.text));
+ uploadImage(file,imageContext(replace?source?.id:null,replace?null:source?.id||null))
+}
+function bindImageDrop(){
+ const canvas=app.querySelector('.canvas');
+ if(!canvas)return;
+ canvas.addEventListener('dragover',ev=>{if(Array.from(ev.dataTransfer?.types||[]).includes('Files')){ev.preventDefault();canvas.classList.add('image-dragover')}});
+ canvas.addEventListener('dragleave',ev=>{if(!canvas.contains(ev.relatedTarget))canvas.classList.remove('image-dragover')});
+ canvas.addEventListener('drop',ev=>{
+  canvas.classList.remove('image-dragover');
+  const file=Array.from(ev.dataTransfer?.files||[]).find(f=>f.type.startsWith('image/'));
+  if(!file)return;
+  ev.preventDefault();
+  const row=ev.target.closest('[data-row]');
+  uploadImage(file,imageContext(null,row?.dataset.row||null))
+ });
+}
+
 function focusBlock(id){const el=app.querySelector('[data-block-edit="'+id+'"]');if(el){el.focus();const r=document.createRange();r.selectNodeContents(el);r.collapse(false);const s=window.getSelection();s.removeAllRanges();s.addRange(r)}}
 function clearPending(kind,id){const k=kind+':'+id;clearTimeout(state.pending.get(k));state.pending.delete(k)}
 async function deleteBlock(id){
@@ -374,6 +502,8 @@ async function actOnBlock(id,action){
 }
 function bind(){
  app.querySelectorAll('[data-page]').forEach(x=>x.onclick=()=>showPage(x.dataset.page));
+ bindImageDrop();
+ const blockArea=app.querySelector('.blocks');if(blockArea)blockArea.addEventListener('paste',handleImagePaste);
  app.querySelectorAll('[data-new-child]').forEach(x=>x.onclick=()=>createPage(x.dataset.newChild||null));
  app.querySelectorAll('[data-expand]').forEach(x=>x.onclick=()=>{const id=x.dataset.expand;if(state.expanded.has(id))state.expanded.delete(id);else state.expanded.add(id);render(true)});
  app.querySelectorAll('[data-action]').forEach(x=>x.onclick=()=>{switch(x.dataset.action){
@@ -403,7 +533,8 @@ function bind(){
    if(ev.key==='Escape'){document.querySelector('.slash-menu')?.remove();return}
    if(ev.key==='Enter'&&!ev.shiftKey&&b.type!=='code'){
     ev.preventDefault();
-    if(slashQuery(x.innerText)){createInlinePage(id);return}
+    if(slashImageQuery(x.innerText)){chooseImageFile(id);return}
+    if(slashPageQuery(x.innerText)){createInlinePage(id);return}
     document.querySelector('.slash-menu')?.remove();createBlock(id,b.type==='todo'?'todo':b.type==='bullet'?'bullet':b.type==='number'?'number':'text');return
    }
    if(ev.key==='Backspace'&&x.innerText.trim()===''&&pageBlocks(b.pageId).length>1){ev.preventDefault();const a=pageBlocks(b.pageId),i=a.findIndex(t=>t.id===id),previous=a[i-1]?.id||a[i+1]?.id;deleteBlock(id).then(()=>focusBlock(previous))}
