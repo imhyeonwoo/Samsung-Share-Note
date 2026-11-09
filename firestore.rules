@@ -28,6 +28,27 @@ service cloud.firestore {
         allow delete: if validSpace(spaceId);
       }
 
+      // Compressed, modest-size images stored in Firestore on the free Spark plan.
+      // No Cloud Storage bucket or billing upgrade is required for this feature.
+      match /images/{imageId} {
+        allow read: if validSpace(spaceId);
+        allow create: if validSpace(spaceId) &&
+          request.resource.data.keys().hasOnly([
+            'id', 'pageId', 'name', 'dataUrl', 'bytes', 'createdAt'
+          ]) &&
+          request.resource.data.id == imageId &&
+          request.resource.data.pageId is string &&
+          request.resource.data.name is string &&
+          request.resource.data.name.size() <= 150 &&
+          request.resource.data.dataUrl is string &&
+          request.resource.data.dataUrl.size() <= 650000 &&
+          request.resource.data.dataUrl.matches('^data:image/(webp|jpeg);base64,.*$') &&
+          request.resource.data.bytes is int &&
+          request.resource.data.bytes <= 500000;
+        allow update: if false;
+        allow delete: if validSpace(spaceId);
+      }
+
       match /blocks/{blockId} {
         allow read: if validSpace(spaceId);
         allow create, update: if validSpace(spaceId) &&
