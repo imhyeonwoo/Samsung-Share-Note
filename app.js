@@ -369,6 +369,7 @@ async function saveImageBlock(text,context,asset=null){
  const block=old?{...old,type:'text',text,checked:false,updatedAt:timestamp}:
   {id:uuid(),pageId:context.pageId,type:'text',text,checked:false,order:afterOrder(context.pageId,context.afterId),createdAt:timestamp,updatedAt:timestamp};
  const assetId=asset?.id;
+ if(old)clearPending('blocks',old.id);
  if(state.mode==='cloud'){
   // Create the asset before publishing a reference to it, avoiding broken links for other editors.
   if(asset)await fb.setDoc(fb.doc(imageColl(),asset.id),asset);
@@ -382,7 +383,6 @@ async function saveImageBlock(text,context,asset=null){
   localUpdate('blocks',block);
   saveDemo()
  }
- if(old)clearPending('blocks',old.id);
  if(state.mode==='cloud'){localUpdate('blocks',block);if(asset)state.images.set(asset.id,asset)}
  if(state.current===context.pageId && state.screen==='page')render(true);
  if(assetId)document.querySelectorAll('[data-image-view="'+assetId+'"]').forEach(el=>{el.src=asset.dataUrl;el.hidden=false;el.closest('.image-frame')?.classList.remove('waiting')});
