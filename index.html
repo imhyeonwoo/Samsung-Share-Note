@@ -2,18 +2,16 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#f8f9f8">
-  <meta name="description" content="삼성물산 면접 준비를 위한 팀 공유 노트와 작업 관리 공간">
-  <title>Samsung Share Note — 함께 준비하는 면접</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#f9f9f7">
+  <meta name="description" content="페이지와 아이디어를 자유롭게 정리하고 함께 나누는 나만의 워크스페이스">
+  <title>Folio — 나만의 워크스페이스</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
-  <div id="app" aria-live="polite">
-    <div class="loading-screen"><div class="loading-mark">S</div><p>워크스페이스를 불러오는 중입니다.</p></div>
-  </div>
-  <dialog id="editor-dialog" class="modal"></dialog>
-  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <div id="app"><div class="boot">워크스페이스를 불러오는 중…</div></div>
+  <dialog id="modal"></dialog>
+  <div id="toast" role="status" aria-live="polite"></div>
   <script type="module" src="./app.js"></script>
 </body>
 </html>
