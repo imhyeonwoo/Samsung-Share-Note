@@ -1,37 +1,50 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function signedIn() {
-      return request.auth != null && request.auth.token.email != null;
+    function validSpace(spaceId) {
+      return request.auth != null &&
+        spaceId.matches('^[a-f0-9]{48}$');
     }
-    function member() {
-      return signedIn() &&
-        request.auth.token.email.lower() in
-        get(/databases/$(database)/documents/workspaces/samsung-interview).data.members;
-    }
-    function owner() {
-      return signedIn() &&
-        request.auth.uid ==
-        get(/databases/$(database)/documents/workspaces/samsung-interview).data.ownerUid;
-    }
-    match /workspaces/samsung-interview {
-      allow get: if signedIn() &&
-        (resource == null ||
-         request.auth.uid == resource.data.ownerUid ||
-         request.auth.token.email.lower() in resource.data.members);
-      allow list: if false;
-      allow create: if signedIn() &&
-        request.resource.data.keys().hasOnly(['ownerUid', 'members', 'createdAt']) &&
-        request.resource.data.ownerUid == request.auth.uid &&
-        request.resource.data.members == [request.auth.token.email.lower()];
-      allow update: if owner() &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members']) &&
-        request.resource.data.members is list &&
-        request.resource.data.members.size() <= 30 &&
-        request.auth.token.email.lower() in request.resource.data.members;
-      allow delete: if false;
-      match /{collection}/{itemId} {
-        allow read, write: if collection in ['notes','tasks'] && member();
+
+    // A 192-bit random workspace ID is carried in the shared URL fragment.
+    // This is a link-capability model, not a substitute for individual permissions.
+    // Any anonymous Firebase user who knows the workspace ID can read, edit or delete.
+    match /spaces/{spaceId} {
+      allow read, write: if false;
+
+      match /pages/{pageId} {
+        allow read: if validSpace(spaceId);
+        allow create, update: if validSpace(spaceId) &&
+          request.resource.data.keys().hasOnly([
+            'id', 'title', 'icon', 'parentId', 'order',
+            'createdAt', 'updatedAt'
+          ]) &&
+          request.resource.data.id == pageId &&
+          request.resource.data.title is string &&
+          request.resource.data.title.size() <= 200 &&
+          request.resource.data.icon is string &&
+          request.resource.data.icon.size() <= 30 &&
+          (request.resource.data.parentId == null || request.resource.data.parentId is string);
+        allow delete: if validSpace(spaceId);
+      }
+
+      match /blocks/{blockId} {
+        allow read: if validSpace(spaceId);
+        allow create, update: if validSpace(spaceId) &&
+          request.resource.data.keys().hasOnly([
+            'id', 'pageId', 'type', 'text', 'checked', 'order',
+            'createdAt', 'updatedAt'
+          ]) &&
+          request.resource.data.id == blockId &&
+          request.resource.data.pageId is string &&
+          request.resource.data.type in [
+            'text', 'h1', 'h2', 'h3', 'bullet', 'number',
+            'todo', 'quote', 'code', 'divider'
+          ] &&
+          request.resource.data.text is string &&
+          request.resource.data.text.size() <= 20000 &&
+          request.resource.data.checked is bool;
+        allow delete: if validSpace(spaceId);
       }
     }
     match /{document=**} {
