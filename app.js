@@ -47,7 +47,7 @@ function loadImage(id){
   if(doc.exists()){
    state.images.set(id,doc.data());
    document.querySelectorAll('[data-image-view="'+id+'"]').forEach(img=>{
-    img.src=doc.data().dataUrl;img.alt=doc.data().name||'첨부 이미지';
+    img.src=doc.data().dataUrl;img.alt=doc.data().name||'첨부 이미지';img.hidden=false;
     img.closest('.image-frame')?.classList.remove('waiting');
    });
   }else{document.querySelectorAll('[data-image-status="'+id+'"]').forEach(el=>el.textContent='이미지를 찾을 수 없습니다.')}
@@ -117,7 +117,7 @@ async function put(kind,item){
 }
 async function erase(kind,id){
  if(state.mode==='demo'){state[kind]=state[kind].filter(x=>x.id!==id);saveDemo();return}
- await fb.deleteDoc(fb.doc(kind==='pages'?pagesColl():blocksColl(),id))
+ await fb.deleteDoc(fb.doc(kind==='pages'?pagesColl():kind==='images'?imageColl():blocksColl(),id))
 }
 function localUpdate(kind,obj){
  const arr=state[kind];const index=arr.findIndex(x=>x.id===obj.id);
@@ -437,8 +437,16 @@ function focusBlock(id){const el=app.querySelector('[data-block-edit="'+id+'"]')
 function clearPending(kind,id){const k=kind+':'+id;clearTimeout(state.pending.get(k));state.pending.delete(k)}
 async function deleteBlock(id){
  const b=blockById(id);if(!b)return;clearPending('blocks',id);
+ const imageId=imageRefId(b.text);
  state.blocks=state.blocks.filter(x=>x.id!==id);render(true);
- try{await erase('blocks',id)}catch(err){notice(err.message)}
+ try{
+  await erase('blocks',id);
+  if(imageId&&!state.blocks.some(x=>imageRefId(x.text)===imageId)){
+   state.images.delete(imageId);
+   if(state.mode==='cloud')await fb.deleteDoc(fb.doc(imageColl(),imageId));
+   else saveDemo();
+  }
+ }catch(err){notice('블록 삭제 실패: '+err.message)}
 }
 async function deleteCurrentPage(){
  const p=pageById(state.current);if(!p)return;
@@ -447,12 +455,15 @@ async function deleteCurrentPage(){
  while(expanded){expanded=false;for(const item of state.pages)if(item.parentId&&affected.has(item.parentId)&&!affected.has(item.id)){affected.add(item.id);expanded=true}}
  if(!confirm('“'+p.title+'” 페이지와 하위 페이지 '+(affected.size-1)+'개, 해당 본문을 모두 삭제할까요? 이 작업은 되돌릴 수 없습니다.'))return;
  const removedBlocks=state.blocks.filter(b=>affected.has(b.pageId)||affected.has(pageRefId(b.text))).map(b=>b.id);
+ const removedSet=new Set(removedBlocks);
+ const imageIds=[...new Set(state.blocks.filter(b=>removedSet.has(b.id)).map(b=>imageRefId(b.text)).filter(Boolean))].filter(id=>!state.blocks.some(b=>!removedSet.has(b.id)&&imageRefId(b.text)===id));
  for(const id of removedBlocks)clearPending('blocks',id);
- state.pages=state.pages.filter(x=>!affected.has(x.id));state.blocks=state.blocks.filter(x=>!affected.has(x.pageId)&&!affected.has(pageRefId(x.text)));
+ state.pages=state.pages.filter(x=>!affected.has(x.id));state.blocks=state.blocks.filter(x=>!removedSet.has(x.id));
+ for(const id of imageIds)state.images.delete(id);
  const parent=p.parentId;state.current=pageById(parent)?.id||children(null)[0]?.id||state.pages[0]?.id||null;
  if(state.mode==='demo'){saveDemo();render(true);return}
  try{
-  const tasks=[...[...affected].map(id=>['pages',id]),...removedBlocks.map(id=>['blocks',id])];
+  const tasks=[...[...affected].map(id=>['pages',id]),...removedBlocks.map(id=>['blocks',id]),...imageIds.map(id=>['images',id])];
   for(let i=0;i<tasks.length;i+=450){const batch=fb.writeBatch(fb.db);for(const [kind,id] of tasks.slice(i,i+450))batch.delete(fb.doc(kind==='pages'?pagesColl():blocksColl(),id));await batch.commit()}
   if(!state.pages.length)await createPage(null);
   render(true)
