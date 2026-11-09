@@ -1,173 +1,294 @@
 import { firebaseConfig } from './firebase-config.js';
 
-const $=s=>document.querySelector(s);
-const app=$('#app'),dialog=$('#editor-dialog'),toastEl=$('#toast');
-const icons={
-  home:'<path d="m3 10 9-7 9 7v10H3z"/><path d="M9 20v-7h6v7"/>',
-  notes:'<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>',
-  tasks:'<rect x="4" y="3" width="16" height="18" rx="2"/><path d="m8 9 2 2 4-4M8 16h8"/>',
-  settings:'<circle cx="12" cy="12" r="3"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>'
-};
-function svg(s){return '<svg viewBox="0 0 24 24" aria-hidden="true">'+icons[s]+'</svg>'}
-function esc(s=''){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
-function val(s){return String(s??'')}
-function date(s){if(!s)return '날짜 없음';const d=new Date(s);return isNaN(d)?esc(s):new Intl.DateTimeFormat('ko-KR',{year:'numeric',month:'short',day:'numeric'}).format(d)}
-function notify(m){toastEl.textContent=m;toastEl.classList.add('show');clearTimeout(notify.t);notify.t=setTimeout(()=>toastEl.classList.remove('show'),3200)}
-function uid(){return globalThis.crypto?.randomUUID?.()||Date.now().toString(36)+Math.random().toString(36).slice(2)}
-const dbkey='samsung-share-note-demo-v1';
-let state={page:'home',notes:[],tasks:[],filter:'',category:'all',status:'all',mode:'demo',auth:null,owner:false,members:[],loading:true,unsubs:[],ready:false};
-let firebase={};
-const configured=Boolean(firebaseConfig?.apiKey&&firebaseConfig?.projectId&&firebaseConfig?.authDomain&&firebaseConfig.apiKey!=='REPLACE_ME');
-function loadLocal(){try{let x=JSON.parse(localStorage.getItem(dbkey)||'{}');state.notes=Array.isArray(x.notes)?x.notes:[];state.tasks=Array.isArray(x.tasks)?x.tasks:[]}catch{state.notes=[];state.tasks=[]}}
-function saveLocal(){try{localStorage.setItem(dbkey,JSON.stringify({notes:state.notes,tasks:state.tasks}))}catch{notify('브라우저 저장에 실패했습니다.')}}
-async function init(){
- if(!configured){loadLocal();state.loading=false;state.ready=true;render();return}
+const app=document.getElementById('app');
+const modal=document.getElementById('modal');
+const toast=document.getElementById('toast');
+const configured=Boolean(firebaseConfig?.apiKey && firebaseConfig?.projectId && firebaseConfig?.authDomain && firebaseConfig.apiKey!=='REPLACE_ME');
+const blockTypes=[['text','텍스트'],['h1','제목 1'],['h2','제목 2'],['h3','제목 3'],['bullet','글머리 기호'],['number','번호 목록'],['todo','체크리스트'],['quote','인용'],['code','코드'],['divider','구분선']];
+const state={pages:[],blocks:[],current:null,screen:'page',search:'',expanded:new Set(),mode:configured?'cloud':'demo',ready:false,editing:null,menu:null,sidebarOpen:false,seeding:false,listen:[],pending:new Map(),error:null};
+let fb={};
+function uuid(){return globalThis.crypto?.randomUUID?.()||'id'+Date.now().toString(36)+Math.random().toString(36).slice(2)}
+function randomSpace(){const b=new Uint8Array(24);crypto.getRandomValues(b);return Array.from(b,x=>x.toString(16).padStart(2,'0')).join('')}
+const params=new URLSearchParams(location.hash.slice(1));
+let space=params.get('space');
+if(!/^[0-9a-f]{48}$/.test(space||'')){space=randomSpace();history.replaceState(null,'',location.pathname+location.search+'#space='+space)}
+const demoKey='folio-workspace-v2-'+space;
+const e=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const now=()=>new Date().toISOString();
+function notice(msg){toast.textContent=msg;toast.classList.add('show');clearTimeout(notice.timer);notice.timer=setTimeout(()=>toast.classList.remove('show'),2900)}
+function stamp(iso){return iso?new Date(iso).toLocaleDateString('ko-KR',{month:'short',day:'numeric'}):''}
+const pageById=id=>state.pages.find(p=>p.id===id);
+const blockById=id=>state.blocks.find(b=>b.id===id);
+function sortByOrder(a,b){return (a.order??0)-(b.order??0) || (a.createdAt||'').localeCompare(b.createdAt||'')}
+function pageBlocks(pid){return state.blocks.filter(b=>b.pageId===pid).sort(sortByOrder)}
+function children(pid){return state.pages.filter(p=>(p.parentId||null)===(pid||null)).sort(sortByOrder)}
+function saveDemo(){try{localStorage.setItem(demoKey,JSON.stringify({pages:state.pages,blocks:state.blocks}))}catch{notice('저장 공간이 부족하거나 차단됐습니다.')}}
+function seedPage(){const timestamp=now();return {id:'welcome',title:'시작 페이지',icon:'🌿',parentId:null,order:0,createdAt:timestamp,updatedAt:timestamp}}
+function seedBlocks(){const timestamp=now();return [
+{id:'intro',pageId:'welcome',type:'h2',text:'나만의 워크스페이스',checked:false,order:1024,createdAt:timestamp,updatedAt:timestamp},
+{id:'guide',pageId:'welcome',type:'text',text:'떠오르는 생각, 공부한 내용, 프로젝트 자료를 페이지로 정리하세요. 왼쪽 사이드바에서 하위 페이지도 만들 수 있어요.',checked:false,order:2048,createdAt:timestamp,updatedAt:timestamp},
+{id:'todo1',pageId:'welcome',type:'todo',text:'새 페이지 만들어 보기',checked:false,order:3072,createdAt:timestamp,updatedAt:timestamp},
+{id:'todo2',pageId:'welcome',type:'todo',text:'공유 링크 복사하기',checked:false,order:4096,createdAt:timestamp,updatedAt:timestamp}
+]}
+function initDemo(){try{const saved=JSON.parse(localStorage.getItem(demoKey)||'null');if(saved&&Array.isArray(saved.pages)&&Array.isArray(saved.blocks)){state.pages=saved.pages;state.blocks=saved.blocks}else{state.pages=[seedPage()];state.blocks=seedBlocks();saveDemo()}}catch{state.pages=[seedPage()];state.blocks=seedBlocks()}state.ready=true;state.current=state.pages[0]?.id||null;render()}
+function pagesColl(){return fb.collection(fb.db,'spaces',space,'pages')}
+function blocksColl(){return fb.collection(fb.db,'spaces',space,'blocks')}
+async function initCloud(){
  try{
-  const [a,b]=await Promise.all([import('https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js'),import('https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js')]);
-  const c=await import('https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js');
-  const fb=a.initializeApp(firebaseConfig);
-  firebase={...b,...c,auth:b.getAuth(fb),db:c.getFirestore(fb)};
-  b.onAuthStateChanged(firebase.auth,user=>{state.auth=user;state.loading=false;if(user)connectWorkspace();else{cleanup();state.notes=[];state.tasks=[];state.ready=false;render()}},e=>{state.loading=false;notify(e.message);render()});
- }catch(e){state.loading=false;app.innerHTML='<div class="setup"><h1>연결 오류</h1><p>'+esc(e.message)+'</p><button class="btn" id="reload">다시 시도</button></div>';$('#reload').onclick=()=>location.reload()}
+  const [m,a,d]=await Promise.all([
+   import('https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js'),
+   import('https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js'),
+   import('https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js')
+  ]);
+  const project=m.initializeApp(firebaseConfig);
+  fb={...d,...a,db:d.getFirestore(project),auth:a.getAuth(project)};
+  await a.signInAnonymously(fb.auth);
+  state.listen.push(d.onSnapshot(pagesColl(),snap=>{
+   state.pages=snap.docs.map(x=>({id:x.id,...x.data()})).sort(sortByOrder);
+   if(state.pages.length===0&&!state.seeding){seedCloud();return}
+   if(state.pages.length){
+    if(!pageById(state.current))state.current=children(null)[0]?.id||state.pages[0].id;
+    state.ready=true;render();
+   }
+  },err=>showError('페이지 동기화 실패: '+err.message)));
+  state.listen.push(d.onSnapshot(blocksColl(),snap=>{
+   state.blocks=snap.docs.map(x=>({id:x.id,...x.data()})).sort(sortByOrder);
+   if(state.ready)render();
+  },err=>showError('본문 동기화 실패: '+err.message)));
+ }catch(err){showError('Firebase 연결에 실패했습니다: '+err.message)}
 }
-function cleanup(){state.unsubs.forEach(fn=>fn());state.unsubs=[]}
-const wref=()=>firebase.doc(firebase.db,'workspaces','samsung-interview');
-const coll=(k)=>firebase.collection(firebase.db,'workspaces','samsung-interview',k);
-async function connectWorkspace(){
- cleanup();state.ready=false;render();
+async function seedCloud(){
+ if(state.seeding)return;
+ state.seeding=true;
  try{
-  const snap=await firebase.getDoc(wref());
-  if(!snap.exists()){
-   state.owner=false;state.members=[];state.ready='new';render();return;
-  }
-  state.members=Array.isArray(snap.data().members)?snap.data().members:[];
-  state.owner=snap.data().ownerUid===state.auth.uid;
-  const email=state.auth.email?.toLowerCase();
-  if(!state.members.includes(email)){state.ready='blocked';render();return}
-  state.unsubs.push(firebase.onSnapshot(wref(),s=>{if(s.exists()){state.members=s.data().members||[];state.owner=s.data().ownerUid===state.auth?.uid;if(!state.members.includes(state.auth?.email?.toLowerCase())){cleanup();state.ready='blocked';render()}else if(state.page==='settings')render()}},()=>{}));
-  for(const kind of ['notes','tasks']){
-   state.unsubs.push(firebase.onSnapshot(coll(kind),s=>{
-    state[kind]=s.docs.map(x=>({id:x.id,...x.data()})).sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
-    state.ready=true;render()
-   },e=>{state.ready='error';notify(e.message);render()}))
-  }
- }catch(e){state.ready=e.code==='permission-denied'?'blocked':'error';if(state.ready==='error')notify(e.message);render()}
+  const base=seedPage();
+  await fb.setDoc(fb.doc(pagesColl(),base.id),base);
+  const batch=fb.writeBatch(fb.db);
+  for(const block of seedBlocks())batch.set(fb.doc(blocksColl(),block.id),block);
+  await batch.commit()
+ }catch(err){showError('첫 페이지를 만들 수 없습니다: '+err.message)}
+ finally{state.seeding=false}
 }
-async function createWorkspace(){
- try{
-  const email=state.auth.email?.toLowerCase();
-  await firebase.setDoc(wref(),{ownerUid:state.auth.uid,members:[email],createdAt:new Date().toISOString()});
-  notify('공유 워크스페이스 생성 완료');connectWorkspace()
- }catch(e){notify('생성 실패: '+e.message)}
+function showError(message){state.error=message;state.ready=false;render()}
+async function put(kind,item){
+ if(state.mode==='demo'){const arr=state[kind];const i=arr.findIndex(x=>x.id===item.id);if(i>=0)arr[i]={...item};else arr.push({...item});saveDemo();return}
+ const ref=fb.doc(kind==='pages'?pagesColl():blocksColl(),item.id);
+ await fb.setDoc(ref,item);
 }
-async function signIn(){try{await firebase.signInWithPopup(firebase.auth,new firebase.GoogleAuthProvider())}catch(e){notify('로그인 실패: '+e.message)}}
-async function signOut(){await firebase.signOut(firebase.auth)}
-async function write(kind,item){try{
- if(state.mode==='demo'){
-  const i=state[kind].findIndex(v=>v.id===item.id);
-  if(i>=0)state[kind][i]={...state[kind][i],...item};else state[kind].unshift(item);
-  saveLocal();render();
- }else{
-  await firebase.setDoc(firebase.doc(coll(kind),item.id),item,{merge:true})
+async function erase(kind,id){
+ if(state.mode==='demo'){state[kind]=state[kind].filter(x=>x.id!==id);saveDemo();return}
+ await fb.deleteDoc(fb.doc(kind==='pages'?pagesColl():blocksColl(),id))
+}
+function localUpdate(kind,obj){
+ const arr=state[kind];const index=arr.findIndex(x=>x.id===obj.id);
+ if(index>=0)arr[index]={...arr[index],...obj};else arr.push(obj);
+ if(state.mode==='demo')saveDemo()
+}
+function debounceSave(kind,item,delay=550){
+ const key=kind+':'+item.id;clearTimeout(state.pending.get(key));
+ localUpdate(kind,item);
+ const timer=setTimeout(async()=>{state.pending.delete(key);try{await put(kind,item)}catch(err){notice('자동 저장 실패: '+err.message)}},delay);
+ state.pending.set(key,timer)
+}
+async function saveImmediate(kind,item){
+ const key=kind+':'+item.id;clearTimeout(state.pending.get(key));state.pending.delete(key);
+ localUpdate(kind,item);
+ try{await put(kind,item)}catch(err){notice('저장 실패: '+err.message)}
+}
+function iconFor(p){return e(p?.icon||'📄')}
+function pagePath(p){
+ let out=[],seen=new Set(),cur=p;
+ while(cur&&!seen.has(cur.id)&&out.length<8){out.unshift(cur);seen.add(cur.id);cur=pageById(cur.parentId)}
+ return out
+}
+function tree(parentId=null,depth=0){
+ if(depth>7)return '';
+ const nodes=children(parentId);
+ return nodes.map(p=>{
+  const nested=children(p.id).length>0;
+  const open=state.expanded.has(p.id);
+  return '<div class="tree-node '+(p.id===state.current&&state.screen==='page'?'selected':'')+'" style="padding-left:'+Math.min(depth*14,98)+'px">'+
+  '<button class="tree-expand" data-expand="'+e(p.id)+'" aria-label="펼치기">'+(nested?(open?'⌄':'›'):'·')+'</button>'+
+  '<button class="tree-select" data-page="'+e(p.id)+'" title="'+e(p.title)+'"><span class="tree-emoji">'+iconFor(p)+'</span><span>'+e(p.title||'제목 없음')+'</span></button>'+
+  '<button class="tree-add" data-new-child="'+e(p.id)+'" title="하위 페이지 추가" aria-label="하위 페이지 추가">+</button></div>'+
+  (nested&&open?tree(p.id,depth+1):'')
+ }).join('');
+}
+function sidebar(){
+ return '<aside class="sidebar '+(state.sidebarOpen?'open':'')+'"><div class="sidebar-inner">'+
+ '<div class="workspace"><span class="workspace-mark">F</span><span>Folio Workspace<small>MY LITTLE NOTION</small></span></div>'+
+ '<button class="side-btn '+(state.screen==='search'?'active':'')+'" data-action="search">⌕ &nbsp; 전체 검색</button>'+
+ '<button class="side-btn" data-action="home">⌂ &nbsp; 모든 페이지</button>'+
+ '<div class="sidebar-label">내 페이지 <button class="add-small" data-new-child="" title="최상위 페이지 추가">+</button></div>'+
+ (tree()||'<div class="empty-list">아직 페이지가 없습니다.</div>')+
+ '</div><div class="sidebar-footer"><b>'+(state.mode==='cloud'?'● 실시간 공동 편집':'● 브라우저 체험 모드')+'</b><br>'+
+ (state.mode==='cloud'?'링크를 가진 누구나 수정할 수 있어요.':'Firebase 연결 전에는 다른 사람과 공유되지 않아요.')+
+ '<button class="side-share" data-action="share">↗ 공유 링크 복사</button></div></aside>'
+}
+function breadcrumbs(p){return pagePath(p).map((x,i,a)=>'<button class="crumb '+(i===a.length-1?'active':'')+'" data-page="'+e(x.id)+'">'+iconFor(x)+' '+e(x.title||'제목 없음')+'</button>'+(i<a.length-1?'<span class="crumb-sep">/</span>':'')).join('')}
+function topbar(p){return '<div class="topbar"><div class="breadcrumbs"><button class="mobile-menu" data-action="sidebar" aria-label="메뉴 열기">☰</button>'+(p?breadcrumbs(p):'<span class="crumb active">'+(state.screen==='search'?'검색':'모든 페이지')+'</span>')+'</div>'+
+ '<div class="top-right"><span class="status">'+(state.mode==='cloud'?'실시간 동기화':'로컬 저장')+'</span><button class="top-btn strong" data-action="share">공유</button></div></div>'}
+function options(type){return blockTypes.map(([key,label])=>'<option value="'+key+'" '+(type===key?'selected':'')+'>'+label+'</option>').join('')}
+function blockHTML(b){
+ const isTodo=b.type==='todo';
+ return '<div class="block '+e(b.type)+(b.checked?' checked':'')+'" data-row="'+e(b.id)+'">'+
+  '<div class="block-tools"><button data-add-after="'+e(b.id)+'" aria-label="아래에 블록 추가" title="블록 추가">+</button><button data-block-menu="'+e(b.id)+'" aria-label="블록 메뉴" title="블록 메뉴">⋮</button></div>'+
+  '<select class="block-type" data-block-type="'+e(b.id)+'" aria-label="블록 종류">'+options(b.type)+'</select>'+
+  '<div class="block-core">'+(isTodo?'<input class="block-check" type="checkbox" data-check="'+e(b.id)+'" '+(b.checked?'checked':'')+' aria-label="체크리스트 완료">':'')+
+  '<div class="block-input" role="textbox" aria-label="블록 내용" aria-multiline="true" contenteditable="'+(b.type==='divider'?'false':'true')+'" data-block-edit="'+e(b.id)+'" data-placeholder="'+(b.type==='h1'?'큰 제목':b.type==='h2'?'제목':b.type==='todo'?'할 일': '텍스트를 입력하세요…')+'">'+e(b.text)+'</div></div></div>';
+}
+function editorPage(){
+ const p=pageById(state.current);
+ if(!p)return '<div class="welcome"><h1>새로운 공간</h1><p>첫 페이지를 만들어 보세요.</p><button data-new-child="">+ 새 페이지</button></div>';
+ const descendants=children(p.id);
+ return '<div class="canvas"><div class="page-cover"></div><button class="page-icon-btn" data-action="icon" title="아이콘 변경">'+iconFor(p)+'</button>'+
+ '<input class="title-input" data-title="'+e(p.id)+'" value="'+e(p.title)+'" placeholder="제목 없음" aria-label="페이지 제목">'+
+ '<div class="page-meta">마지막 수정 '+stamp(p.updatedAt)+' · 변경 사항 자동 저장</div>'+
+ (state.mode==='demo'?'<div class="notice">체험 모드: 작성 내용은 이 브라우저에만 저장됩니다. 다른 사람과 함께 편집하려면 Firebase를 연결해야 합니다.</div>':'')+
+ '<section class="blocks">'+(pageBlocks(p.id).map(blockHTML).join('')||'<p class="hint">아직 작성한 내용이 없어요.</p>')+'</section>'+
+ '<button class="block-ctrl" data-action="add-block">＋ 블록 추가</button>'+
+ '<div class="page-actions"><button class="page-action" data-new-child="'+e(p.id)+'">＋ 하위 페이지 만들기</button><button class="page-action" data-action="move-page">↳ 상위 페이지 변경</button><button class="page-action" data-action="delete-page">🗑 페이지 삭제</button></div>'+
+ (descendants.length?'<div class="child-pages"><h2>하위 페이지</h2>'+descendants.map(x=>'<button class="child-link" data-page="'+e(x.id)+'">'+iconFor(x)+' '+e(x.title||'제목 없음')+'</button>').join('')+'</div>':'')+
+ '<p class="hint">블록의 + 버튼으로 문단을 추가하고, 종류 선택 메뉴에서 제목·체크리스트·목록 등을 고를 수 있어요.</p></div>';
+}
+function allPages(){
+ const sorted=[...state.pages].sort(sortByOrder);
+ return '<div class="search-results"><h1>모든 페이지</h1><p class="hint">워크스페이스의 페이지를 빠르게 찾아보세요.</p><button class="page-action" data-new-child="">+ 새 페이지</button>'+
+ sorted.map(p=>'<button class="search-result" data-page="'+e(p.id)+'"><b>'+iconFor(p)+' '+e(p.title||'제목 없음')+'</b><small>'+e(pagePath(p).map(x=>x.title).join(' / '))+'</small></button>').join('')+'</div>';
+}
+function searchPage(){
+ const q=state.search.trim().toLowerCase();
+ const matched=state.pages.filter(p=>!q||p.title.toLowerCase().includes(q)||state.blocks.some(b=>b.pageId===p.id&&b.text.toLowerCase().includes(q)));
+ return '<div class="search-results"><h1>검색</h1><input id="search-field" class="search-input" type="search" placeholder="페이지 제목이나 본문 검색" value="'+e(state.search)+'" autofocus>'+
+ '<div id="results">'+searchMatches(matched)+'</div></div>';
+}
+function searchMatches(items){return items.length?items.map(p=>'<button class="search-result" data-page="'+e(p.id)+'"><b>'+iconFor(p)+' '+e(p.title||'제목 없음')+'</b><small>'+e(pagePath(p).map(x=>x.title).join(' / '))+'</small></button>').join(''):'<p class="hint">검색 결과가 없습니다.</p>'}
+function isEditing(){const node=document.activeElement;return Boolean(node&&(node.matches('[data-block-edit]')||node.matches('[data-title]')))}
+function render(force=false){
+ if(!state.ready){
+  app.innerHTML=state.error?'<div class="error"><h2>연결 오류</h2><p>'+e(state.error)+'</p><p>Firebase 설정·익명 인증·Firestore 규칙을 확인하세요.</p><button onclick="location.reload()">새로고침</button></div>':'<div class="boot">워크스페이스를 불러오는 중…</div>';
+  return
  }
- notify('저장했습니다.')
-}catch(e){notify('저장 실패: '+e.message)}}
-async function remove(kind,id){if(!confirm('정말 삭제하시겠습니까?'))return;try{
- if(state.mode==='demo'){state[kind]=state[kind].filter(v=>v.id!==id);saveLocal();render()}
- else await firebase.deleteDoc(firebase.doc(coll(kind),id));
- notify('삭제했습니다.')
-}catch(e){notify('삭제 실패: '+e.message)}}
-function nav(p){state.page=p;state.filter='';state.category='all';state.status='all';render();window.scrollTo({top:0,behavior:'smooth'})}
-function count(status){return state.tasks.filter(t=>t.status===status).length}
-const statusNames={todo:'할 일',doing:'진행 중',done:'완료'};
-function header(){
- const labels={home:'대시보드',notes:'공유 노트',tasks:'작업 관리',settings:'팀 설정'};
- const navs=[['home','대시보드'],['notes','공유 노트'],['tasks','작업 관리'],['settings','팀 설정']];
- return '<div class="shell"><aside class="sidebar"><div class="brand"><div class="brand-symbol">S</div><div>SAMSUNG NOTE<small>SHARED WORKSPACE</small></div></div><div><div class="nav-section-label">WORKSPACE</div><nav class="nav">'+navs.map(([p,label])=>'<button data-nav="'+p+'" class="'+(state.page===p?'active':'')+'">'+svg(p)+label+'</button>').join('')+'</nav></div><div class="sidebar-bottom"><div class="user-line"><div class="avatar">'+esc((state.auth?.displayName||'나')[0])+'</div><span>'+esc(state.auth?.displayName||'내 브라우저')+'</span></div>'+(state.mode==='cloud'?'<button data-action="logout">로그아웃</button>':'<p>이 브라우저에만 저장됩니다.</p>')+'</div></aside><div class="mobile-header">'+navs.map(([p,label])=>'<button data-nav="'+p+'" class="'+(state.page===p?'active':'')+'">'+label+'</button>').join('')+'</div><main class="main"><div class="topline"><span class="eyebrow">INTERVIEW PREPARATION / 2026</span><div class="top-actions"><span class="pill '+(state.mode==='demo'?'demo':'')+'">'+(state.mode==='demo'?'체험 모드 · 비공유':'실시간 공유')+'</span></div></div>';
-}
-function pageHead(title,sub,action){return '<div class="page-head"><div><span class="eyebrow">SAMSUNG C&T · ENGINEERING</span><h1>'+title+'</h1><p>'+sub+'</p></div>'+(action||'')+'</div>'}
-function alert(){return state.mode==='demo'?'<div class="alert">현재는 <b>체험 모드</b>입니다. 데이터는 이 브라우저에만 저장되며 다른 팀원과 공유되지 않습니다. 실시간 공동 작업에는 Firebase 설정이 필요합니다.</div>':''}
-function taskRow(t){return '<div class="list-row"><input class="check" type="checkbox" data-check="'+esc(t.id)+'" '+(t.status==='done'?'checked':'')+' aria-label="작업 완료 변경"><div class="item-main"><button class="item-title '+(t.status==='done'?'done':'')+'" data-edit-task="'+esc(t.id)+'">'+esc(t.title)+'</button><div class="item-meta"><span>'+esc(t.assignee||'미배정')+'</span><span>'+date(t.due)+'</span><span>'+esc(statusNames[t.status]||'할 일')+'</span></div></div><span class="tag '+esc(t.priority||'')+'">'+({high:'높음',medium:'보통',low:'낮음'}[t.priority]||'보통')+'</span></div>'}
-function noteCard(n){return '<button class="note-card" data-edit-note="'+esc(n.id)+'"><span class="note-category">'+esc(n.category||'기타')+'</span><strong>'+esc(n.title)+'</strong><p>'+esc(n.content||'내용 없음')+'</p><span class="note-date">'+date(n.updatedAt||n.createdAt)+'</span></button>'}
-function home(){
- const recent=[...state.tasks].filter(t=>t.status!=='done').slice(0,5);
- return pageHead('함께 준비하는 공간','삼성물산 건설부문 반도체 생산설비 · 전기전자 면접 준비 현황','<button class="btn primary" data-action="new-note">+ 새 노트 작성</button>')
- +alert()+'<section class="stats"><div class="stat"><div class="label">전체 작업</div><div class="value">'+state.tasks.length+'</div><div class="foot">등록된 모든 작업</div></div><div class="stat"><div class="label">진행 중</div><div class="value">'+count('doing')+'</div><div class="foot">현재 진행하는 작업</div></div><div class="stat"><div class="label">공유 노트</div><div class="value">'+state.notes.length+'</div><div class="foot">기록된 학습 자료</div></div></section><div class="content-grid"><section class="panel"><div class="panel-heading"><h2>남은 작업</h2><button class="link-button" data-nav="tasks">모든 작업 보기 →</button></div><div class="row-list">'+(recent.length?recent.map(taskRow).join(''):'<div class="empty">남은 작업이 없습니다.<br>새 작업을 추가해 보세요.</div>')+'</div></section><section class="panel"><div class="panel-heading"><h2>최근 공유 노트</h2><button class="link-button" data-nav="notes">노트 전체 보기 →</button></div><div class="row-list">'+(state.notes.slice(0,4).length?state.notes.slice(0,4).map(n=>'<div class="list-row"><div class="item-main"><button class="item-title" data-edit-note="'+esc(n.id)+'">'+esc(n.title)+'</button><div class="item-meta">'+esc(n.category||'기타')+' · '+date(n.updatedAt||n.createdAt)+'</div></div></div>').join(''):'<div class="empty">아직 작성된 노트가 없습니다.</div>')+'</div></section></div>';
-}
-function notes(){
- const cats=['all',...new Set(state.notes.map(n=>n.category||'기타'))];
- const q=state.filter.toLowerCase();
- const found=state.notes.filter(n=>(state.category==='all'||(n.category||'기타')===state.category)&&[n.title,n.content,n.category].some(s=>val(s).toLowerCase().includes(q)));
- return pageHead('공유 노트','학습 내용과 면접 질문을 한곳에 정리하세요.','<button class="btn primary" data-action="new-note">+ 새 노트</button>')
- +alert()+'<div class="toolbar"><input class="search" id="search" placeholder="노트 제목, 내용 검색" value="'+esc(state.filter)+'" aria-label="노트 검색"><select class="filter" id="category-filter" aria-label="노트 분류">'+cats.map(c=>'<option value="'+esc(c)+'" '+(c===state.category?'selected':'')+'>'+(c==='all'?'전체 분류':esc(c))+'</option>').join('')+'</select></div><div class="notes-grid">'+(found.length?found.map(noteCard).join(''):'<div class="panel empty">조건에 맞는 노트가 없습니다.</div>')+'</div>';
-}
-function taskCard(t){
- return '<div class="task-card"><span class="tag '+esc(t.priority||'')+'">'+({high:'높음',medium:'보통',low:'낮음'}[t.priority]||'보통')+'</span><strong>'+esc(t.title)+'</strong>'+(t.description?'<p>'+esc(t.description)+'</p>':'')+'<div class="item-meta"><span>담당: '+esc(t.assignee||'미배정')+'</span><span>'+date(t.due)+'</span></div><div class="card-actions"><button class="mini" data-edit-task="'+esc(t.id)+'">수정</button>'+(t.status!=='todo'?'<button class="mini" data-move="'+esc(t.id)+'" data-status="todo">할 일로</button>':'')+(t.status!=='doing'?'<button class="mini" data-move="'+esc(t.id)+'" data-status="doing">진행 중으로</button>':'')+(t.status!=='done'?'<button class="mini" data-move="'+esc(t.id)+'" data-status="done">완료로</button>':'')+'</div></div>';
-}
-function tasks(){
- const q=state.filter.toLowerCase();
- const found=state.tasks.filter(t=>[t.title,t.description,t.assignee].some(x=>val(x).toLowerCase().includes(q)));
- return pageHead('작업 관리','할 일을 나누고 진행 상태를 함께 확인하세요.','<button class="btn primary" data-action="new-task">+ 새 작업</button>')
- +alert()+'<div class="toolbar"><input class="search" id="search" placeholder="작업, 담당자 검색" value="'+esc(state.filter)+'" aria-label="작업 검색"></div><div class="task-board">'+Object.entries(statusNames).map(([id,name])=>'<section class="task-column"><h2>'+name+'<span>'+found.filter(t=>t.status===id).length+'</span></h2>'+(found.filter(t=>t.status===id).map(taskCard).join('')||'<div class="empty">작업이 없습니다.</div>')+'</section>').join('')+'</div>';
-}
-function settings(){
- return pageHead('팀 설정','같이 준비할 팀원을 관리합니다.')+alert()+
- (state.mode==='demo'?'<section class="panel"><div class="panel-heading"><h2>실시간 공유 활성화</h2></div><div style="padding:0 24px 25px" class="help-list"><p>현재는 브라우저 내부 저장만 가능합니다.</p><p>GitHub의 <code>firebase-config.js</code>에 Firebase 프로젝트 설정값을 입력하고 <code>firestore.rules</code>를 배포하면 Google 로그인과 팀 공유가 활성화됩니다.</p><p>자세한 설명은 GitHub 저장소의 README를 확인하세요.</p></div></section>':
- '<section class="panel"><div class="panel-heading"><h2>허용된 팀원</h2></div><div style="padding:0 24px 24px"><p class="permission">등록된 Google 계정만 노트와 작업에 접근할 수 있습니다.</p><div class="row-list">'+state.members.map(m=>'<div class="list-row"><div class="item-main">'+esc(m)+'</div>'+(state.owner&&m!==state.auth.email?.toLowerCase()?'<button class="mini" data-remove-member="'+esc(m)+'">삭제</button>':'')+'</div>').join('')+'</div>'+(state.owner?'<form id="invite-form" class="toolbar" style="margin-top:20px"><input class="search" name="email" type="email" required placeholder="초대할 Google 계정 이메일"><button class="btn primary" type="submit">팀원 추가</button></form>':'<p class="permission">팀원 추가·삭제는 최초 생성자만 가능합니다.</p>')+'</div></section>');
-}
-function render(){
- if(state.loading){app.innerHTML='<div class="loading-screen">로그인 확인 중…</div>';return}
- if(configured&&!state.auth){app.innerHTML='<div class="login-screen"><section class="login-card"><div class="brand-symbol">S</div><h1>Samsung Share Note</h1><p>삼성물산 면접 준비를 위한 공유 노트입니다.<br>팀에 등록된 Google 계정으로 로그인하세요.</p><button class="btn primary" data-action="login">Google 계정으로 로그인</button></section></div>';bind();return}
- if(configured&&state.ready!=='true'&&state.ready!==true){
-  if(state.ready==='new')app.innerHTML='<div class="setup"><h1>새 워크스페이스 생성</h1><p>아직 공유 공간이 없습니다. 첫 로그인 계정이 관리자(생성자)가 됩니다.</p><p><b>'+esc(state.auth.email)+'</b></p><button class="btn primary" data-action="create-workspace">워크스페이스 시작하기</button><button class="btn ghost" data-action="logout">로그아웃</button></div>';
-  else if(state.ready==='blocked')app.innerHTML='<div class="setup"><h1>접근 권한이 없습니다</h1><p>현재 로그인한 <b>'+esc(state.auth.email)+'</b> 계정이 멤버 목록에 없습니다. 관리자에게 이메일 등록을 요청하세요.</p><button class="btn" data-action="logout">다른 계정으로 로그인</button></div>';
-  else if(state.ready==='error')app.innerHTML='<div class="setup"><h1>데이터를 불러올 수 없습니다</h1><p>Firestore 데이터베이스와 보안 규칙을 확인하세요.</p><button class="btn" data-action="retry">다시 시도</button></div>';
-  else app.innerHTML='<div class="loading-screen">공유 자료를 동기화하는 중…</div>';
-  bind();return
- }
- state.mode=configured?'cloud':'demo';
- app.innerHTML=header()+({home,notes,tasks,settings}[state.page]||home)()+'</main></div>';
+ if(!force&&isEditing())return;
+ const p=state.screen==='page'?pageById(state.current):null;
+ app.innerHTML='<div class="layout">'+sidebar()+'<main class="main">'+topbar(p)+(state.screen==='search'?searchPage():state.screen==='all'?allPages():editorPage())+'</main></div>';
  bind();
 }
+function showPage(id){if(!pageById(id))return;state.current=id;state.screen='page';state.sidebarOpen=false;state.menu=null;let p=pageById(id);if(p?.parentId){let x=p;let seen=new Set();while(x?.parentId&&!seen.has(x.id)){seen.add(x.id);state.expanded.add(x.parentId);x=pageById(x.parentId)}}render(true);window.scrollTo({top:0})}
+async function createPage(parentId=null){
+ const id=uuid();const newPage={id,title:'제목 없음',icon:'📄',parentId:parentId||null,order:Date.now(),createdAt:now(),updatedAt:now()};
+ localUpdate('pages',newPage);
+ if(parentId)state.expanded.add(parentId);
+ showPage(id);const input=app.querySelector('[data-title]');if(input){input.focus();input.select()}
+ try{await put('pages',newPage)}catch(err){notice('페이지 생성 실패: '+err.message)}
+}
+async function createBlock(afterId=null,type='text'){
+ const current=state.current;const sorted=pageBlocks(current);
+ let order=1024;
+ if(afterId){
+  const ix=sorted.findIndex(b=>b.id===afterId);
+  const a=sorted[ix]?.order??0;const b=sorted[ix+1]?.order;
+  order=(b!==undefined)?(a+b)/2:a+1024
+ }else if(sorted.length)order=(sorted[sorted.length-1].order??0)+1024;
+ const item={id:uuid(),pageId:current,type,text:'',checked:false,order,createdAt:now(),updatedAt:now()};
+ localUpdate('blocks',item);render(true);focusBlock(item.id);
+ try{await put('blocks',item)}catch(err){notice('블록 생성 실패: '+err.message)}
+}
+function focusBlock(id){const el=app.querySelector('[data-block-edit="'+id+'"]');if(el){el.focus();const r=document.createRange();r.selectNodeContents(el);r.collapse(false);const s=window.getSelection();s.removeAllRanges();s.addRange(r)}}
+function clearPending(kind,id){const k=kind+':'+id;clearTimeout(state.pending.get(k));state.pending.delete(k)}
+async function deleteBlock(id){
+ const b=blockById(id);if(!b)return;clearPending('blocks',id);
+ state.blocks=state.blocks.filter(x=>x.id!==id);render(true);
+ try{await erase('blocks',id)}catch(err){notice(err.message)}
+}
+async function deleteCurrentPage(){
+ const p=pageById(state.current);if(!p)return;
+ const affected=new Set([p.id]);
+ let expanded=true;
+ while(expanded){expanded=false;for(const item of state.pages)if(item.parentId&&affected.has(item.parentId)&&!affected.has(item.id)){affected.add(item.id);expanded=true}}
+ if(!confirm('“'+p.title+'” 페이지와 하위 페이지 '+(affected.size-1)+'개, 해당 본문을 모두 삭제할까요? 이 작업은 되돌릴 수 없습니다.'))return;
+ const removedBlocks=state.blocks.filter(b=>affected.has(b.pageId)).map(b=>b.id);
+ for(const id of removedBlocks)clearPending('blocks',id);
+ state.pages=state.pages.filter(x=>!affected.has(x.id));state.blocks=state.blocks.filter(x=>!affected.has(x.pageId));
+ const parent=p.parentId;state.current=pageById(parent)?.id||children(null)[0]?.id||state.pages[0]?.id||null;
+ if(state.mode==='demo'){saveDemo();render(true);return}
+ try{
+  const tasks=[...[...affected].map(id=>['pages',id]),...removedBlocks.map(id=>['blocks',id])];
+  for(let i=0;i<tasks.length;i+=450){const batch=fb.writeBatch(fb.db);for(const [kind,id] of tasks.slice(i,i+450))batch.delete(fb.doc(kind==='pages'?pagesColl():blocksColl(),id));await batch.commit()}
+  if(!state.pages.length)await createPage(null);
+  render(true)
+ }catch(err){notice('일부 항목 삭제 실패: '+err.message)}
+ if(!state.pages.length&&state.mode==='demo')await createPage(null);
+}
+async function moveCurrentPage(){
+ const p=pageById(state.current);if(!p)return;
+ const available=state.pages.filter(x=>x.id!==p.id&&pagePath(x).every(y=>y.id!==p.id));
+ const list=['0. 최상위 페이지',...available.map((x,i)=>(i+1)+'. '+pagePath(x).map(v=>v.title).join(' / '))];
+ const answer=prompt('이동할 상위 페이지의 번호를 입력하세요:\n'+list.join('\n'),'0');
+ if(answer===null)return;const n=Number(answer);if(!Number.isInteger(n)||n<0||n>available.length){notice('잘못된 번호입니다.');return}
+ await saveImmediate('pages',{...p,parentId:n===0?null:available[n-1].id,updatedAt:now()});render(true)
+}
+async function renameIcon(){
+ const p=pageById(state.current);if(!p)return;
+ const input=prompt('페이지 아이콘으로 사용할 이모지를 입력하세요.',p.icon||'📄');
+ if(input===null)return;
+ await saveImmediate('pages',{...p,icon:input.trim().slice(0,8)||'📄',updatedAt:now()});render(true)
+}
+function copyShare(){
+ if(state.mode==='demo'){
+  modal.className='share-modal';
+  modal.innerHTML='<h2>공유는 Firebase 연결 후 가능해요</h2><p>지금은 작성한 페이지가 현재 브라우저에만 저장되므로, 링크를 보내도 다른 사람은 같은 내용을 볼 수 없습니다.</p><p>GitHub README의 Firebase 설정 방법에 따라 익명 인증과 Firestore를 활성화하면 링크를 가진 누구나 로그인 절차 없이 공동 편집할 수 있어요.</p><div class="modal-actions"><button data-close-modal>닫기</button></div>';modal.showModal();modal.querySelector('[data-close-modal]').onclick=()=>modal.close();return
+ }
+ const url=location.origin+location.pathname+location.search+'#space='+space;
+ modal.className='share-modal';
+ modal.innerHTML='<h2>워크스페이스 공유</h2><p>아래 링크를 가진 모든 사람은 페이지와 본문을 생성·수정·삭제할 수 있어요. 별도의 회원가입이나 승인이 필요하지 않습니다.</p><input id="share-url" class="share-input" readonly value="'+e(url)+'"><p>⚠️ 링크가 유출되면 제3자도 편집할 수 있습니다. 중요한 개인정보, 비밀번호, 민감한 자료는 저장하지 마세요. 수정 이력과 복원 기능은 현재 제공되지 않습니다.</p><div class="modal-actions"><button data-close-modal>닫기</button><button class="primary" id="copy-url">링크 복사</button></div>';
+ modal.showModal();modal.querySelector('[data-close-modal]').onclick=()=>modal.close();modal.querySelector('#copy-url').onclick=async()=>{try{await navigator.clipboard.writeText(url);notice('공유 링크를 복사했어요.');modal.close()}catch{document.getElementById('share-url').select();notice('주소를 선택했습니다. 직접 복사해 주세요.')}};
+}
+function blockMenu(id){
+ const box=app.querySelector('[data-row="'+id+'"]');if(!box)return;
+ const old=document.querySelector('.floating-menu');if(old)old.remove();
+ const r=box.getBoundingClientRect();
+ const menu=document.createElement('div');menu.className='floating-menu';menu.style.left=Math.max(8,Math.min(r.left+44,innerWidth-200))+'px';menu.style.top=Math.min(r.top+32,innerHeight-225)+'px';menu.innerHTML='<button data-block-action="up">↑ 위로 이동</button><button data-block-action="down">↓ 아래로 이동</button><button data-block-action="duplicate">⧉ 복제</button><button data-block-action="delete">🗑 삭제</button>';
+ document.body.appendChild(menu);
+ menu.querySelectorAll('button').forEach(b=>b.onclick=()=>{const action=b.dataset.blockAction;menu.remove();actOnBlock(id,action)});
+ const away=ev=>{if(!menu.contains(ev.target)&&!ev.target.closest('[data-block-menu]')){menu.remove();document.removeEventListener('pointerdown',away)}};setTimeout(()=>document.addEventListener('pointerdown',away),0)
+}
+async function actOnBlock(id,action){
+ const b=blockById(id);if(!b)return;
+ if(action==='delete'){await deleteBlock(id);return}
+ if(action==='duplicate'){const items=pageBlocks(b.pageId);const i=items.findIndex(x=>x.id===id),after=items[i+1];const copy={...b,id:uuid(),order:after?(b.order+after.order)/2:b.order+1024,createdAt:now(),updatedAt:now()};localUpdate('blocks',copy);render(true);await saveImmediate('blocks',copy);return}
+ const siblings=pageBlocks(b.pageId),i=siblings.findIndex(x=>x.id===id);
+ const other=siblings[i+(action==='up'?-1:1)];if(!other)return;
+ const old=b.order;await Promise.all([saveImmediate('blocks',{...b,order:other.order,updatedAt:now()}),saveImmediate('blocks',{...other,order:old,updatedAt:now()})]);render(true)
+}
 function bind(){
- app.querySelectorAll('[data-nav]').forEach(el=>el.onclick=()=>nav(el.dataset.nav));
- app.querySelectorAll('[data-action]').forEach(el=>el.onclick=()=>{
-  const a=el.dataset.action;
-  if(a==='login')signIn();if(a==='logout')signOut();if(a==='create-workspace')createWorkspace();if(a==='retry')connectWorkspace();
-  if(a==='new-note')edit('notes');if(a==='new-task')edit('tasks');
+ app.querySelectorAll('[data-page]').forEach(x=>x.onclick=()=>showPage(x.dataset.page));
+ app.querySelectorAll('[data-new-child]').forEach(x=>x.onclick=()=>createPage(x.dataset.newChild||null));
+ app.querySelectorAll('[data-expand]').forEach(x=>x.onclick=()=>{const id=x.dataset.expand;if(state.expanded.has(id))state.expanded.delete(id);else state.expanded.add(id);render(true)});
+ app.querySelectorAll('[data-action]').forEach(x=>x.onclick=()=>{switch(x.dataset.action){
+  case 'search':state.screen='search';state.sidebarOpen=false;render(true);document.getElementById('search-field')?.focus();break;
+  case 'home':state.screen='all';state.sidebarOpen=false;render(true);break;
+  case 'sidebar':state.sidebarOpen=!state.sidebarOpen;render(true);break;
+  case 'share':copyShare();break;
+  case 'icon':renameIcon();break;
+  case 'add-block':createBlock();break;
+  case 'move-page':moveCurrentPage();break;
+  case 'delete-page':deleteCurrentPage();break;
+ }});
+ const q=document.getElementById('search-field');if(q)q.oninput=ev=>{state.search=ev.target.value.toLowerCase();const matches=state.pages.filter(p=>!state.search||p.title.toLowerCase().includes(state.search)||state.blocks.some(b=>b.pageId===p.id&&b.text.toLowerCase().includes(state.search)));document.getElementById('results').innerHTML=searchMatches(matches);document.querySelectorAll('#results [data-page]').forEach(x=>x.onclick=()=>showPage(x.dataset.page))};
+ const title=app.querySelector('[data-title]');if(title){title.oninput=ev=>{const p=pageById(ev.target.dataset.title);if(p)debounceSave('pages',{...p,title:ev.target.value||'',updatedAt:now()})};title.onblur=()=>setTimeout(()=>render(),100);title.onkeydown=ev=>{if(ev.key==='Enter'){ev.preventDefault();ev.target.blur()}}}
+ app.querySelectorAll('[data-add-after]').forEach(x=>x.onclick=()=>createBlock(x.dataset.addAfter));
+ app.querySelectorAll('[data-block-menu]').forEach(x=>x.onclick=()=>blockMenu(x.dataset.blockMenu));
+ app.querySelectorAll('[data-block-type]').forEach(x=>x.onchange=async()=>{const b=blockById(x.dataset.blockType);if(b){await saveImmediate('blocks',{...b,type:x.value,updatedAt:now()});render(true)}});
+ app.querySelectorAll('[data-check]').forEach(x=>x.onchange=async()=>{const b=blockById(x.dataset.check);if(b){await saveImmediate('blocks',{...b,checked:x.checked,updatedAt:now()});render(true)}});
+ app.querySelectorAll('[data-block-edit]').forEach(x=>{
+  x.oninput=ev=>{const b=blockById(ev.target.dataset.blockEdit);if(b)debounceSave('blocks',{...b,text:ev.target.innerText,updatedAt:now()})};
+  x.onblur=()=>setTimeout(()=>render(),100);
+  x.onkeydown=ev=>{
+   const id=x.dataset.blockEdit,b=blockById(id);if(!b)return;
+   if(ev.key==='Enter'&&!ev.shiftKey&&b.type!=='code'){ev.preventDefault();createBlock(id,b.type==='todo'?'todo':b.type==='bullet'?'bullet':b.type==='number'?'number':'text')}
+   if(ev.key==='Backspace'&&x.innerText.trim()===''&&pageBlocks(b.pageId).length>1){ev.preventDefault();const a=pageBlocks(b.pageId),i=a.findIndex(t=>t.id===id),previous=a[i-1]?.id||a[i+1]?.id;deleteBlock(id).then(()=>focusBlock(previous))}
+  }
  });
- app.querySelectorAll('[data-edit-note]').forEach(el=>el.onclick=()=>edit('notes',state.notes.find(x=>x.id===el.dataset.editNote)));
- app.querySelectorAll('[data-edit-task]').forEach(el=>el.onclick=()=>edit('tasks',state.tasks.find(x=>x.id===el.dataset.editTask)));
- app.querySelectorAll('[data-check]').forEach(el=>el.onchange=()=>{let t=state.tasks.find(x=>x.id===el.dataset.check);if(t)write('tasks',{...t,status:el.checked?'done':'todo',updatedAt:new Date().toISOString()})});
- app.querySelectorAll('[data-move]').forEach(el=>el.onclick=()=>{let t=state.tasks.find(x=>x.id===el.dataset.move);if(t)write('tasks',{...t,status:el.dataset.status,updatedAt:new Date().toISOString()})});
- const search=$('#search');if(search)search.oninput=e=>{const pos=e.target.selectionStart;state.filter=e.target.value;render();const x=$('#search');x.focus();x.setSelectionRange(pos,pos)};
- const category=$('#category-filter');if(category)category.onchange=e=>{state.category=e.target.value;render()};
- const invite=$('#invite-form');if(invite)invite.onsubmit=async e=>{
-  e.preventDefault();const email=invite.elements.email.value.trim().toLowerCase();if(!email)return;
-  if(state.members.includes(email)){notify('이미 등록된 팀원입니다.');return}
-  try{await firebase.updateDoc(wref(),{members:[...state.members,email]});invite.reset();notify('팀원을 등록했습니다.')}catch(err){notify('등록 실패: '+err.message)}
- };
- app.querySelectorAll('[data-remove-member]').forEach(el=>el.onclick=async()=>{if(!confirm(el.dataset.removeMember+' 계정을 제외할까요?'))return;try{await firebase.updateDoc(wref(),{members:state.members.filter(m=>m!==el.dataset.removeMember)});notify('팀원을 제외했습니다.')}catch(e){notify(e.message)}});
 }
-function field(label,name,value='',type='text',options){
- if(type==='select')return '<label class="form-field">'+label+'<select name="'+name+'">'+options.map(([v,l])=>'<option value="'+esc(v)+'" '+(v===value?'selected':'')+'>'+esc(l)+'</option>').join('')+'</select></label>';
- if(type==='textarea')return '<label class="form-field">'+label+'<textarea name="'+name+'" maxlength="20000">'+esc(value)+'</textarea></label>';
- return '<label class="form-field">'+label+'<input name="'+name+'" type="'+type+'" value="'+esc(value)+'" '+(name==='title'?'required maxlength="140"':'')+'></label>';
-}
-function edit(kind,item){
- const isNote=kind==='notes',old=item||{},title=item?'수정':'새로 작성';
- dialog.innerHTML='<form class="modal-content" id="edit-form"><h2>'+(isNote?'노트 ':'작업 ')+title+'</h2><p>변경 내용은 '+(state.mode==='demo'?'현재 브라우저에':'공유 워크스페이스에')+' 저장됩니다.</p>'
- +field('제목','title',old.title||'')
- +(isNote?field('분류','category',old.category||'전기 기초','select',[['전기 기초','전기 기초'],['반도체 설비','반도체 설비'],['PT 면접','PT 면접'],['임원 면접','임원 면접'],['기타','기타']])+field('내용','content',old.content||'','textarea')
- :field('설명','description',old.description||'','textarea')+field('담당자','assignee',old.assignee||'')+field('마감일','due',old.due||'','date')+field('상태','status',old.status||'todo','select',Object.entries(statusNames))+field('우선순위','priority',old.priority||'medium','select',[['low','낮음'],['medium','보통'],['high','높음']]))
- +'<div class="modal-actions">'+(item?'<button class="btn danger" type="button" id="delete-item">삭제</button>':'<span></span>')+'<div class="right"><button class="btn" type="button" id="cancel-item">취소</button><button class="btn primary" type="submit">저장</button></div></div></form>';
- dialog.showModal();$('#cancel-item').onclick=()=>dialog.close();
- if(item)$('#delete-item').onclick=()=>{dialog.close();remove(kind,item.id)};
- $('#edit-form').onsubmit=async e=>{
-  e.preventDefault();
-  const data=Object.fromEntries(new FormData(e.target).entries());
-  const value={...old,...data,id:old.id||uid(),createdAt:old.createdAt||new Date().toISOString(),updatedAt:new Date().toISOString()};
-  dialog.close();await write(kind,value)
- };
-}
-init();
+if(configured)initCloud();else initDemo();
