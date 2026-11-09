@@ -4,8 +4,8 @@ const app=document.getElementById('app');
 const modal=document.getElementById('modal');
 const toast=document.getElementById('toast');
 const configured=Boolean(firebaseConfig?.apiKey && firebaseConfig?.projectId && firebaseConfig?.authDomain && firebaseConfig.apiKey!=='REPLACE_ME');
-const blockTypes=[['text','텍스트'],['h1','제목 1'],['h2','제목 2'],['h3','제목 3'],['bullet','글머리 기호'],['number','번호 목록'],['todo','체크리스트'],['quote','인용'],['code','코드'],['divider','구분선']];
-const state={pages:[],blocks:[],current:null,screen:'page',search:'',expanded:new Set(),mode:configured?'cloud':'demo',ready:false,editing:null,menu:null,sidebarOpen:false,seeding:false,listen:[],pending:new Map(),error:null};
+const blockTypes=[['text','텍스트'],['h1','제목 1'],['h2','제목 2'],['h3','제목 3'],['bullet','글머리 기호'],['number','번호 목록'],['todo','체크리스트'],['quote','인용'],['code','코드'],['divider','구분선'],['page','하위 페이지']];
+const state={pages:[],blocks:[],current:null,screen:'page',search:'',expanded:new Set(),mode:configured?'cloud':'demo',ready:false,editing:null,menu:null,sidebarOpen:false,seeding:false,creatingInline:false,listen:[],pending:new Map(),error:null};
 let fb={};
 function uuid(){return globalThis.crypto?.randomUUID?.()||'id'+Date.now().toString(36)+Math.random().toString(36).slice(2)}
 function randomSpace(){const b=new Uint8Array(24);crypto.getRandomValues(b);return Array.from(b,x=>x.toString(16).padStart(2,'0')).join('')}
@@ -19,6 +19,9 @@ function notice(msg){toast.textContent=msg;toast.classList.add('show');clearTime
 function stamp(iso){return iso?new Date(iso).toLocaleDateString('ko-KR',{month:'short',day:'numeric'}):''}
 const pageById=id=>state.pages.find(p=>p.id===id);
 const blockById=id=>state.blocks.find(b=>b.id===id);
+// Page links are encoded as text blocks, so the existing published Firestore rules remain compatible.
+function pageRefId(text){const match=String(text||'').match(/^\[\[folio-page:([a-zA-Z0-9-]+)\]\]$/);return match?.[1]||null}
+function pageLinkText(id){return '[[folio-page:'+id+']]' }
 function sortByOrder(a,b){return (a.order??0)-(b.order??0) || (a.createdAt||'').localeCompare(b.createdAt||'')}
 function pageBlocks(pid){return state.blocks.filter(b=>b.pageId===pid).sort(sortByOrder)}
 function children(pid){return state.pages.filter(p=>(p.parentId||null)===(pid||null)).sort(sortByOrder)}
@@ -130,6 +133,17 @@ function topbar(p){return '<div class="topbar"><div class="breadcrumbs"><button 
  '<div class="top-right"><span class="status">'+(state.mode==='cloud'?'실시간 동기화':'로컬 저장')+'</span><button class="top-btn strong" data-action="share">공유</button></div></div>'}
 function options(type){return blockTypes.map(([key,label])=>'<option value="'+key+'" '+(type===key?'selected':'')+'>'+label+'</option>').join('')}
 function blockHTML(b){
+ const refId=pageRefId(b.text);
+ const target=refId?pageById(refId):null;
+ if(refId){
+  return '<div class="block inline-page" data-row="'+e(b.id)+'">'+
+   '<div class="block-tools"><button data-add-after="'+e(b.id)+'" aria-label="아래에 블록 추가" title="블록 추가">+</button><button data-block-menu="'+e(b.id)+'" aria-label="블록 메뉴" title="블록 메뉴">⋮</button></div>'+
+   '<span class="block-page-tag">페이지</span>'+
+   '<div class="block-core"><button class="inline-page-link" '+(target?'data-page="'+e(target.id)+'"':'disabled')+'>'+
+   '<span class="inline-page-emoji">'+(target?iconFor(target):'📄')+'</span>'+
+   '<span class="inline-page-title">'+e(target?.title||'삭제된 페이지')+'</span>'+
+   '<span class="inline-page-arrow">↗</span></button></div></div>';
+ }
  const isTodo=b.type==='todo';
  return '<div class="block '+e(b.type)+(b.checked?' checked':'')+'" data-row="'+e(b.id)+'">'+
   '<div class="block-tools"><button data-add-after="'+e(b.id)+'" aria-label="아래에 블록 추가" title="블록 추가">+</button><button data-block-menu="'+e(b.id)+'" aria-label="블록 메뉴" title="블록 메뉴">⋮</button></div>'+
@@ -137,6 +151,7 @@ function blockHTML(b){
   '<div class="block-core">'+(isTodo?'<input class="block-check" type="checkbox" data-check="'+e(b.id)+'" '+(b.checked?'checked':'')+' aria-label="체크리스트 완료">':'')+
   '<div class="block-input" role="textbox" aria-label="블록 내용" aria-multiline="true" contenteditable="'+(b.type==='divider'?'false':'true')+'" data-block-edit="'+e(b.id)+'" data-placeholder="'+(b.type==='h1'?'큰 제목':b.type==='h2'?'제목':b.type==='todo'?'할 일': '텍스트를 입력하세요…')+'">'+e(b.text)+'</div></div></div>';
 }
+
 function editorPage(){
  const p=pageById(state.current);
  if(!p)return '<div class="welcome"><h1>새로운 공간</h1><p>첫 페이지를 만들어 보세요.</p><button data-new-child="">+ 새 페이지</button></div>';
@@ -146,10 +161,10 @@ function editorPage(){
  '<div class="page-meta">마지막 수정 '+stamp(p.updatedAt)+' · 변경 사항 자동 저장</div>'+
  (state.mode==='demo'?'<div class="notice">체험 모드: 작성 내용은 이 브라우저에만 저장됩니다. 다른 사람과 함께 편집하려면 Firebase를 연결해야 합니다.</div>':'')+
  '<section class="blocks">'+(pageBlocks(p.id).map(blockHTML).join('')||'<p class="hint">아직 작성한 내용이 없어요.</p>')+'</section>'+
- '<button class="block-ctrl" data-action="add-block">＋ 블록 추가</button>'+
+ '<button class="block-ctrl" data-action="add-block">＋ 블록 추가</button><button class="block-ctrl" data-action="inline-page">📄 하위 페이지 추가</button>'+
  '<div class="page-actions"><button class="page-action" data-new-child="'+e(p.id)+'">＋ 하위 페이지 만들기</button><button class="page-action" data-action="move-page">↳ 상위 페이지 변경</button><button class="page-action" data-action="delete-page">🗑 페이지 삭제</button></div>'+
  (descendants.length?'<div class="child-pages"><h2>하위 페이지</h2>'+descendants.map(x=>'<button class="child-link" data-page="'+e(x.id)+'">'+iconFor(x)+' '+e(x.title||'제목 없음')+'</button>').join('')+'</div>':'')+
- '<p class="hint">블록의 + 버튼으로 문단을 추가하고, 종류 선택 메뉴에서 제목·체크리스트·목록 등을 고를 수 있어요.</p></div>';
+ '<p class="hint">본문에서 /page 또는 \\page 입력 후 Enter를 누르면 하위 페이지가 만들어져요. 블록의 종류 메뉴에서도 페이지를 추가할 수 있어요.</p></div>';
 }
 function allPages(){
  const sorted=[...state.pages].sort(sortByOrder);
@@ -182,6 +197,53 @@ async function createPage(parentId=null){
  showPage(id);const input=app.querySelector('[data-title]');if(input){input.focus();input.select()}
  try{await put('pages',newPage)}catch(err){notice('페이지 생성 실패: '+err.message)}
 }
+// Notion-like /page command: convert the current text block into an embedded child-page link.
+async function createInlinePage(sourceBlockId=null){
+ if(state.creatingInline || !state.current || !pageById(state.current))return;
+ const source=sourceBlockId?blockById(sourceBlockId):null;
+ if(sourceBlockId && (!source || source.pageId!==state.current || pageRefId(source.text)))return;
+ state.creatingInline=true;
+ const timestamp=now();
+ const child={id:uuid(),title:'제목 없음',icon:'📄',parentId:state.current,order:Date.now(),createdAt:timestamp,updatedAt:timestamp};
+ let order=(pageBlocks(state.current).at(-1)?.order??0)+1024;
+ const link=source?{...source,type:'text',text:pageLinkText(child.id),checked:false,updatedAt:timestamp}:
+   {id:uuid(),pageId:state.current,type:'text',text:pageLinkText(child.id),checked:false,order,createdAt:timestamp,updatedAt:timestamp};
+ try{
+  document.querySelector('.slash-menu')?.remove();
+  if(source)clearPending('blocks',source.id);
+  if(state.mode==='cloud'){
+   const batch=fb.writeBatch(fb.db);
+   batch.set(fb.doc(pagesColl(),child.id),child);
+   batch.set(fb.doc(blocksColl(),link.id),link);
+   await batch.commit();
+  }
+  localUpdate('pages',child);
+  localUpdate('blocks',link);
+  if(state.mode==='demo')saveDemo();
+  state.expanded.add(child.parentId);
+  showPage(child.id);
+  notice('하위 페이지를 만들었어요.');
+ }catch(err){
+  notice('하위 페이지를 만들지 못했어요: '+err.message);
+  render(true);
+ }finally{state.creatingInline=false}
+}
+function slashQuery(input){
+ const q=String(input||'').trim().toLowerCase();
+ return /^[/\\](?:|p|pa|pag|page|페|페이|페이지)$/.test(q);
+}
+function showSlashMenu(blockId){
+ document.querySelector('.slash-menu')?.remove();
+ const row=app.querySelector('[data-row="'+blockId+'"]');
+ if(!row)return;
+ const menu=document.createElement('div');
+ menu.className='slash-menu';
+ menu.innerHTML='<button class="slash-command" type="button"><span class="slash-command-icon">📄</span><span><b>새 하위 페이지</b><small>/page · Enter로 만들기</small></span><span class="slash-command-key">↵</span></button>';
+ menu.addEventListener('pointerdown',ev=>ev.preventDefault());
+ menu.querySelector('button').addEventListener('click',()=>createInlinePage(blockId));
+ row.appendChild(menu);
+}
+
 async function createBlock(afterId=null,type='text'){
  const current=state.current;const sorted=pageBlocks(current);
  let order=1024;
@@ -207,9 +269,9 @@ async function deleteCurrentPage(){
  let expanded=true;
  while(expanded){expanded=false;for(const item of state.pages)if(item.parentId&&affected.has(item.parentId)&&!affected.has(item.id)){affected.add(item.id);expanded=true}}
  if(!confirm('“'+p.title+'” 페이지와 하위 페이지 '+(affected.size-1)+'개, 해당 본문을 모두 삭제할까요? 이 작업은 되돌릴 수 없습니다.'))return;
- const removedBlocks=state.blocks.filter(b=>affected.has(b.pageId)).map(b=>b.id);
+ const removedBlocks=state.blocks.filter(b=>affected.has(b.pageId)||affected.has(pageRefId(b.text))).map(b=>b.id);
  for(const id of removedBlocks)clearPending('blocks',id);
- state.pages=state.pages.filter(x=>!affected.has(x.id));state.blocks=state.blocks.filter(x=>!affected.has(x.pageId));
+ state.pages=state.pages.filter(x=>!affected.has(x.id));state.blocks=state.blocks.filter(x=>!affected.has(x.pageId)&&!affected.has(pageRefId(x.text)));
  const parent=p.parentId;state.current=pageById(parent)?.id||children(null)[0]?.id||state.pages[0]?.id||null;
  if(state.mode==='demo'){saveDemo();render(true);return}
  try{
@@ -272,6 +334,7 @@ function bind(){
   case 'share':copyShare();break;
   case 'icon':renameIcon();break;
   case 'add-block':createBlock();break;
+   case 'inline-page':createInlinePage();break;
   case 'move-page':moveCurrentPage();break;
   case 'delete-page':deleteCurrentPage();break;
  }});
@@ -279,14 +342,19 @@ function bind(){
  const title=app.querySelector('[data-title]');if(title){title.oninput=ev=>{const p=pageById(ev.target.dataset.title);if(p)debounceSave('pages',{...p,title:ev.target.value||'',updatedAt:now()})};title.onblur=()=>setTimeout(()=>render(),100);title.onkeydown=ev=>{if(ev.key==='Enter'){ev.preventDefault();ev.target.blur()}}}
  app.querySelectorAll('[data-add-after]').forEach(x=>x.onclick=()=>createBlock(x.dataset.addAfter));
  app.querySelectorAll('[data-block-menu]').forEach(x=>x.onclick=()=>blockMenu(x.dataset.blockMenu));
- app.querySelectorAll('[data-block-type]').forEach(x=>x.onchange=async()=>{const b=blockById(x.dataset.blockType);if(b){await saveImmediate('blocks',{...b,type:x.value,updatedAt:now()});render(true)}});
+ app.querySelectorAll('[data-block-type]').forEach(x=>x.onchange=async()=>{const b=blockById(x.dataset.blockType);if(!b)return;if(x.value==='page'){createInlinePage(b.id);return}await saveImmediate('blocks',{...b,type:x.value,updatedAt:now()});render(true)});
  app.querySelectorAll('[data-check]').forEach(x=>x.onchange=async()=>{const b=blockById(x.dataset.check);if(b){await saveImmediate('blocks',{...b,checked:x.checked,updatedAt:now()});render(true)}});
  app.querySelectorAll('[data-block-edit]').forEach(x=>{
-  x.oninput=ev=>{const b=blockById(ev.target.dataset.blockEdit);if(b)debounceSave('blocks',{...b,text:ev.target.innerText,updatedAt:now()})};
-  x.onblur=()=>setTimeout(()=>render(),100);
+  x.oninput=ev=>{const b=blockById(ev.target.dataset.blockEdit);if(!b)return;const entered=ev.target.innerText;debounceSave('blocks',{...b,text:entered,updatedAt:now()});if(slashQuery(entered))showSlashMenu(b.id);else document.querySelector('.slash-menu')?.remove()};
+  x.onblur=()=>setTimeout(()=>{document.querySelector('.slash-menu')?.remove();render()},130);
   x.onkeydown=ev=>{
    const id=x.dataset.blockEdit,b=blockById(id);if(!b)return;
-   if(ev.key==='Enter'&&!ev.shiftKey&&b.type!=='code'){ev.preventDefault();createBlock(id,b.type==='todo'?'todo':b.type==='bullet'?'bullet':b.type==='number'?'number':'text')}
+   if(ev.key==='Escape'){document.querySelector('.slash-menu')?.remove();return}
+   if(ev.key==='Enter'&&!ev.shiftKey&&b.type!=='code'){
+    ev.preventDefault();
+    if(slashQuery(x.innerText)){createInlinePage(id);return}
+    document.querySelector('.slash-menu')?.remove();createBlock(id,b.type==='todo'?'todo':b.type==='bullet'?'bullet':b.type==='number'?'number':'text');return
+   }
    if(ev.key==='Backspace'&&x.innerText.trim()===''&&pageBlocks(b.pageId).length>1){ev.preventDefault();const a=pageBlocks(b.pageId),i=a.findIndex(t=>t.id===id),previous=a[i-1]?.id||a[i+1]?.id;deleteBlock(id).then(()=>focusBlock(previous))}
   }
  });
