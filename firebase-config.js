@@ -1,6 +1,8 @@
-// Firebase Console → 프로젝트 설정 → 내 앱(웹)에서 발급되는 설정값을 붙여넣으세요.
-// 이 값들은 공개 클라이언트 식별자입니다. 보안은 firestore.rules와 인증으로 강제합니다.
-// Firebase Admin SDK 서비스 계정 키, API 비밀키 또는 비밀번호는 절대 여기에 넣지 마세요.
+// Firebase Console → Project settings → Your apps → Web app에서 발급된 값을 입력하세요.
+// 이 값은 공개용 Firebase 웹 앱 식별자로서, 접근 제어는 반드시 firestore.rules로 강제해야 합니다.
+// 실제 공동 편집을 위해서는 Firebase Authentication의 Anonymous(익명) 제공업체와
+// Cloud Firestore 데이터베이스를 활성화해야 합니다.
+// 관리자 비밀키, 서비스 계정 JSON, 토큰 등은 GitHub에 업로드하지 마세요.
 export const firebaseConfig = {
   apiKey: "REPLACE_ME",
   authDomain: "",
