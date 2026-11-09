@@ -4,8 +4,8 @@ const app=document.getElementById('app');
 const modal=document.getElementById('modal');
 const toast=document.getElementById('toast');
 const configured=Boolean(firebaseConfig?.apiKey && firebaseConfig?.projectId && firebaseConfig?.authDomain && firebaseConfig.apiKey!=='REPLACE_ME');
-const blockTypes=[['text','텍스트'],['h1','제목 1'],['h2','제목 2'],['h3','제목 3'],['bullet','글머리 기호'],['number','번호 목록'],['todo','체크리스트'],['quote','인용'],['code','코드'],['divider','구분선'],['page','하위 페이지']];
-const state={pages:[],blocks:[],current:null,screen:'page',search:'',expanded:new Set(),mode:configured?'cloud':'demo',ready:false,editing:null,menu:null,sidebarOpen:false,seeding:false,creatingInline:false,listen:[],pending:new Map(),error:null};
+const blockTypes=[['text','텍스트'],['h1','제목 1'],['h2','제목 2'],['h3','제목 3'],['bullet','글머리 기호'],['number','번호 목록'],['todo','체크리스트'],['quote','인용'],['code','코드'],['divider','구분선'],['page','하위 페이지'],['image','이미지']];
+const state={pages:[],blocks:[],images:new Map(),imageLoading:new Set(),current:null,screen:'page',search:'',expanded:new Set(),mode:configured?'cloud':'demo',ready:false,editing:null,menu:null,sidebarOpen:false,seeding:false,creatingInline:false,listen:[],pending:new Map(),error:null};
 let fb={};
 function uuid(){return globalThis.crypto?.randomUUID?.()||'id'+Date.now().toString(36)+Math.random().toString(36).slice(2)}
 function randomSpace(){const b=new Uint8Array(24);crypto.getRandomValues(b);return Array.from(b,x=>x.toString(16).padStart(2,'0')).join('')}
@@ -22,6 +22,43 @@ const blockById=id=>state.blocks.find(b=>b.id===id);
 // Page links are encoded as text blocks, so the existing published Firestore rules remain compatible.
 function pageRefId(text){const match=String(text||'').match(/^\[\[folio-page:([a-zA-Z0-9-]+)\]\]$/);return match?.[1]||null}
 function pageLinkText(id){return '[[folio-page:'+id+']]' }
+function imageRefId(text){const m=String(text||'').match(/^\[\[folio-image:([a-zA-Z0-9-]+)\]\]$/);return m?.[1]||null}
+function imageURL(text){
+ const m=String(text||'').match(/^\[\[folio-image-url:(.+)\]\]$/);
+ if(!m)return null;
+ try{const u=new URL(decodeURIComponent(m[1]));return u.protocol==='https:'?u.href:null}catch{return null}
+}
+function imageLinkText(id){return '[[folio-image:'+id+']]' }
+function imageURLText(url){return '[[folio-image-url:'+encodeURIComponent(url)+']]' }
+function imageByteSize(dataUrl){return Math.ceil((dataUrl.length-(dataUrl.indexOf(',')+1))*3/4)}
+function afterOrder(pageId,afterId){
+ const list=pageBlocks(pageId);
+ if(afterId){
+  const i=list.findIndex(x=>x.id===afterId);
+  if(i>=0){const a=list[i].order??0,b=list[i+1]?.order;return b!==undefined?(a+b)/2:a+1024}
+ }
+ return (list.at(-1)?.order??0)+1024
+}
+function imageColl(){return fb.collection(fb.db,'spaces',space,'images')}
+function loadImage(id){
+ if(state.images.has(id)||state.imageLoading.has(id)||state.mode==='demo')return;
+ state.imageLoading.add(id);
+ fb.getDoc(fb.doc(imageColl(),id)).then(doc=>{
+  if(doc.exists()){
+   state.images.set(id,doc.data());
+   document.querySelectorAll('[data-image-view="'+id+'"]').forEach(img=>{
+    img.src=doc.data().dataUrl;img.alt=doc.data().name||'첨부 이미지';
+    img.closest('.image-frame')?.classList.remove('waiting');
+   });
+  }else{document.querySelectorAll('[data-image-status="'+id+'"]').forEach(el=>el.textContent='이미지를 찾을 수 없습니다.')}
+ }).catch(err=>document.querySelectorAll('[data-image-status="'+id+'"]').forEach(el=>el.textContent='이미지 불러오기 실패: '+err.message)).finally(()=>state.imageLoading.delete(id))
+}
+function refreshImages(){
+ for(const b of state.blocks){
+  const id=imageRefId(b.text);
+  if(id)loadImage(id)
+ }
+}
 function sortByOrder(a,b){return (a.order??0)-(b.order??0) || (a.createdAt||'').localeCompare(b.createdAt||'')}
 function pageBlocks(pid){return state.blocks.filter(b=>b.pageId===pid).sort(sortByOrder)}
 function children(pid){return state.pages.filter(p=>(p.parentId||null)===(pid||null)).sort(sortByOrder)}
@@ -51,12 +88,12 @@ async function initCloud(){
    if(state.pages.length===0&&!state.seeding){seedCloud();return}
    if(state.pages.length){
     if(!pageById(state.current))state.current=children(null)[0]?.id||state.pages[0].id;
-    state.ready=true;render();
+    state.ready=true;render();refreshImages();
    }
   },err=>showError('페이지 동기화 실패: '+err.message)));
   state.listen.push(d.onSnapshot(blocksColl(),snap=>{
    state.blocks=snap.docs.map(x=>({id:x.id,...x.data()})).sort(sortByOrder);
-   if(state.ready)render();
+   if(state.ready){render();refreshImages()}
   },err=>showError('본문 동기화 실패: '+err.message)));
  }catch(err){showError('Firebase 연결에 실패했습니다: '+err.message)}
 }
@@ -144,6 +181,18 @@ function blockHTML(b){
    '<span class="inline-page-title">'+e(target?.title||'삭제된 페이지')+'</span>'+
    '<span class="inline-page-arrow">↗</span></button></div></div>';
  }
+ const imageId=imageRefId(b.text), external=imageURL(b.text);
+ if(imageId||external){
+  const asset=imageId?state.images.get(imageId):null;
+  const imgSrc=asset?.dataUrl||external||'';
+  return '<div class="block image-block" data-row="'+e(b.id)+'">'+
+   '<div class="block-tools"><button data-add-after="'+e(b.id)+'" aria-label="아래에 블록 추가">+</button><button data-block-menu="'+e(b.id)+'" aria-label="블록 메뉴">⋮</button></div>'+
+   '<span class="block-page-tag">이미지</span><div class="block-core"><figure class="image-frame '+(!imgSrc?'waiting':'')+'">'+
+   (imgSrc?'<img loading="lazy" decoding="async" src="'+e(imgSrc)+'" alt="'+e(asset?.name||'첨부 이미지')+'" '+(imageId?'data-image-view="'+e(imageId)+'"':'')+'>':
+   '<img data-image-view="'+e(imageId||'')+'" alt="첨부 이미지" hidden>')+
+   '<figcaption data-image-status="'+e(imageId||'')+'">'+e(asset?.name|| (external?'링크 이미지':'이미지를 불러오는 중…'))+'</figcaption>'+
+   '</figure></div></div>'
+ }
  const isTodo=b.type==='todo';
  return '<div class="block '+e(b.type)+(b.checked?' checked':'')+'" data-row="'+e(b.id)+'">'+
   '<div class="block-tools"><button data-add-after="'+e(b.id)+'" aria-label="아래에 블록 추가" title="블록 추가">+</button><button data-block-menu="'+e(b.id)+'" aria-label="블록 메뉴" title="블록 메뉴">⋮</button></div>'+
@@ -161,10 +210,10 @@ function editorPage(){
  '<div class="page-meta">마지막 수정 '+stamp(p.updatedAt)+' · 변경 사항 자동 저장</div>'+
  (state.mode==='demo'?'<div class="notice">체험 모드: 작성 내용은 이 브라우저에만 저장됩니다. 다른 사람과 함께 편집하려면 Firebase를 연결해야 합니다.</div>':'')+
  '<section class="blocks">'+(pageBlocks(p.id).map(blockHTML).join('')||'<p class="hint">아직 작성한 내용이 없어요.</p>')+'</section>'+
- '<button class="block-ctrl" data-action="add-block">＋ 블록 추가</button><button class="block-ctrl" data-action="inline-page">📄 하위 페이지 추가</button>'+
+ '<button class="block-ctrl" data-action="add-block">＋ 블록 추가</button><button class="block-ctrl" data-action="inline-page">📄 하위 페이지 추가</button><button class="block-ctrl" data-action="upload-image">🖼️ 이미지 업로드</button><button class="block-ctrl" data-action="image-url">🔗 이미지 URL 삽입</button>'+
  '<div class="page-actions"><button class="page-action" data-new-child="'+e(p.id)+'">＋ 하위 페이지 만들기</button><button class="page-action" data-action="move-page">↳ 상위 페이지 변경</button><button class="page-action" data-action="delete-page">🗑 페이지 삭제</button></div>'+
  (descendants.length?'<div class="child-pages"><h2>하위 페이지</h2>'+descendants.map(x=>'<button class="child-link" data-page="'+e(x.id)+'">'+iconFor(x)+' '+e(x.title||'제목 없음')+'</button>').join('')+'</div>':'')+
- '<p class="hint">본문에서 /page 또는 \\page 입력 후 Enter를 누르면 하위 페이지가 만들어져요. 블록의 종류 메뉴에서도 페이지를 추가할 수 있어요.</p></div>';
+ '<p class="hint">본문에서 /page로 하위 페이지를, /image로 이미지를 삽입할 수 있어요. 이미지 파일을 복사해 Ctrl+V로 붙여넣는 것도 가능해요. 블록의 종류 메뉴에서도 페이지를 추가할 수 있어요.</p></div>';
 }
 function allPages(){
  const sorted=[...state.pages].sort(sortByOrder);
@@ -184,10 +233,10 @@ function render(force=false){
   app.innerHTML=state.error?'<div class="error"><h2>연결 오류</h2><p>'+e(state.error)+'</p><p>Firebase 설정·익명 인증·Firestore 규칙을 확인하세요.</p><button onclick="location.reload()">새로고침</button></div>':'<div class="boot">워크스페이스를 불러오는 중…</div>';
   return
  }
- if(!force&&isEditing())return;
+ if(!force&&isEditing()){refreshImages();return;}
  const p=state.screen==='page'?pageById(state.current):null;
  app.innerHTML='<div class="layout">'+sidebar()+'<main class="main">'+topbar(p)+(state.screen==='search'?searchPage():state.screen==='all'?allPages():editorPage())+'</main></div>';
- bind();
+ bind();refreshImages();
 }
 function showPage(id){if(!pageById(id))return;state.current=id;state.screen='page';state.sidebarOpen=false;state.menu=null;let p=pageById(id);if(p?.parentId){let x=p;let seen=new Set();while(x?.parentId&&!seen.has(x.id)){seen.add(x.id);state.expanded.add(x.parentId);x=pageById(x.parentId)}}render(true);window.scrollTo({top:0})}
 async function createPage(parentId=null){
@@ -335,6 +384,8 @@ function bind(){
   case 'icon':renameIcon();break;
   case 'add-block':createBlock();break;
    case 'inline-page':createInlinePage();break;
+   case 'upload-image':chooseImageFile();break;
+   case 'image-url':addImageURL();break;
   case 'move-page':moveCurrentPage();break;
   case 'delete-page':deleteCurrentPage();break;
  }});
@@ -342,7 +393,7 @@ function bind(){
  const title=app.querySelector('[data-title]');if(title){title.oninput=ev=>{const p=pageById(ev.target.dataset.title);if(p)debounceSave('pages',{...p,title:ev.target.value||'',updatedAt:now()})};title.onblur=()=>setTimeout(()=>render(),100);title.onkeydown=ev=>{if(ev.key==='Enter'){ev.preventDefault();ev.target.blur()}}}
  app.querySelectorAll('[data-add-after]').forEach(x=>x.onclick=()=>createBlock(x.dataset.addAfter));
  app.querySelectorAll('[data-block-menu]').forEach(x=>x.onclick=()=>blockMenu(x.dataset.blockMenu));
- app.querySelectorAll('[data-block-type]').forEach(x=>x.onchange=async()=>{const b=blockById(x.dataset.blockType);if(!b)return;if(x.value==='page'){createInlinePage(b.id);return}await saveImmediate('blocks',{...b,type:x.value,updatedAt:now()});render(true)});
+ app.querySelectorAll('[data-block-type]').forEach(x=>x.onchange=async()=>{const b=blockById(x.dataset.blockType);if(!b)return;if(x.value==='page'){createInlinePage(b.id);return}if(x.value==='image'){chooseImageFile(b.id);return}await saveImmediate('blocks',{...b,type:x.value,updatedAt:now()});render(true)});
  app.querySelectorAll('[data-check]').forEach(x=>x.onchange=async()=>{const b=blockById(x.dataset.check);if(b){await saveImmediate('blocks',{...b,checked:x.checked,updatedAt:now()});render(true)}});
  app.querySelectorAll('[data-block-edit]').forEach(x=>{
   x.oninput=ev=>{const b=blockById(ev.target.dataset.blockEdit);if(!b)return;const entered=ev.target.innerText;debounceSave('blocks',{...b,text:entered,updatedAt:now()});if(slashQuery(entered))showSlashMenu(b.id);else document.querySelector('.slash-menu')?.remove()};
