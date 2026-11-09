@@ -20,3 +20,18 @@
 .slash-command-key{margin-left:auto;color:#9aa89b}
 .block-ctrl + .block-ctrl{margin-left:8px}
 @media(max-width:650px){.inline-page .block-page-tag{width:42px}.slash-menu{left:35px}.inline-page-link{padding:11px 9px}.inline-page-title{font-size:12px}}
+
+
+/* Inline images, responsive screenshot display and drag-and-drop feedback */
+.block.image-block{align-items:flex-start;padding:7px 0}
+.image-block .block-tools{padding-top:12px}
+.image-block .block-page-tag{font-size:10px;flex-shrink:0;width:52px;color:#9aa79b;font-weight:600;padding-top:14px}
+.image-frame{margin:0;padding:8px 0;max-width:100%;border-radius:8px;min-height:54px}
+.image-frame img{display:block;max-width:100%;height:auto;max-height:660px;object-fit:contain;border-radius:8px;border:1px solid #edf1ed;background:#f8faf8}
+.image-frame img[hidden]{display:none}
+.image-frame figcaption{font-size:11px;line-height:1.5;color:#9ca89e;margin-top:9px;overflow-wrap:anywhere}
+.image-frame.waiting{background:#f5f8f4;padding:17px;color:#9ca89e}
+.image-dragover{outline:2px dashed #aac5b0;outline-offset:-8px;border-radius:12px;background:#fafefa}
+.slash-menu .slash-command+.slash-command{margin-top:4px;background:#fff}
+.slash-menu .slash-command+.slash-command:hover{background:#eaf1e8}
+@media(max-width:650px){.image-block .block-page-tag{width:42px}.image-frame img{max-height:470px}.block-ctrl{margin-top:10px}}
