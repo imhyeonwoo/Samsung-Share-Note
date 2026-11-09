@@ -1,13 +1,12 @@
-// Firebase Console → Project settings → Your apps → Web app에서 발급된 값을 입력하세요.
-// 이 값은 공개용 Firebase 웹 앱 식별자로서, 접근 제어는 반드시 firestore.rules로 강제해야 합니다.
-// 실제 공동 편집을 위해서는 Firebase Authentication의 Anonymous(익명) 제공업체와
-// Cloud Firestore 데이터베이스를 활성화해야 합니다.
-// 관리자 비밀키, 서비스 계정 JSON, 토큰 등은 GitHub에 업로드하지 마세요.
+// Firebase Web app configuration (public client-side identifiers).
+// Protect your data with Firestore Security Rules, never with config secrecy.
+// Never commit Firebase service account private keys or admin credentials.
 export const firebaseConfig = {
-  apiKey: "REPLACE_ME",
-  authDomain: "",
-  projectId: "",
-  storageBucket: "",
-  messagingSenderId: "",
-  appId: ""
+  apiKey: "AIzaSyAmb6E3kXhG0lvVlv1NbyLGYonQ_IhStQA",
+  authDomain: "samsung-b2796.firebaseapp.com",
+  projectId: "samsung-b2796",
+  storageBucket: "samsung-b2796.firebasestorage.app",
+  messagingSenderId: "638922657404",
+  appId: "1:638922657404:web:de027ef82d5e0d8a9dc3f9",
+  measurementId: "G-P51VD9LT20"
 };
