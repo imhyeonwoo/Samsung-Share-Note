@@ -51,7 +51,7 @@ async function connectWorkspace(){
     state.ready=true;render()
    },e=>{state.ready='error';notify(e.message);render()}))
   }
- }catch(e){state.ready='error';notify(e.message);render()}
+ }catch(e){state.ready=e.code==='permission-denied'?'blocked':'error';if(state.ready==='error')notify(e.message);render()}
 }
 async function createWorkspace(){
  try{
