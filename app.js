@@ -5,7 +5,7 @@ const modal=document.getElementById('modal');
 const toast=document.getElementById('toast');
 const configured=Boolean(firebaseConfig?.apiKey && firebaseConfig?.projectId && firebaseConfig?.authDomain && firebaseConfig.apiKey!=='REPLACE_ME');
 const blockTypes=[['text','텍스트'],['h1','제목 1'],['h2','제목 2'],['h3','제목 3'],['bullet','글머리 기호'],['number','번호 목록'],['todo','체크리스트'],['quote','인용'],['code','코드'],['divider','구분선'],['page','하위 페이지'],['image','이미지']];
-const state={pages:[],blocks:[],images:new Map(),imageLoading:new Set(),current:null,screen:'page',search:'',expanded:new Set(),mode:configured?'cloud':'demo',ready:false,editing:null,menu:null,sidebarOpen:false,seeding:false,creatingInline:false,listen:[],pending:new Map(),error:null};
+const state={pages:[],blocks:[],images:new Map(),imageLoading:new Set(),current:null,screen:'page',search:'',expanded:new Set(),mode:configured?'cloud':'demo',ready:false,editing:null,menu:null,sidebarOpen:false,seeding:false,creatingInline:false,listen:[],pending:new Map(),drafts:new Map(),error:null};
 let fb={};
 function uuid(){return globalThis.crypto?.randomUUID?.()||'id'+Date.now().toString(36)+Math.random().toString(36).slice(2)}
 function randomSpace(){const b=new Uint8Array(24);crypto.getRandomValues(b);return Array.from(b,x=>x.toString(16).padStart(2,'0')).join('')}
@@ -39,6 +39,7 @@ function saveOriginRoute(){
  if(state.ready&&currentHref()!==routeHref())setRoute(true);
 }
 function restoreRoute(){
+ flushPendingWrites();
  const route=readRoute();
  if(route.space!==space){location.reload();return}
  state.screen=route.screen;
@@ -53,6 +54,7 @@ window.addEventListener('popstate',restoreRoute);
 window.addEventListener('hashchange',restoreRoute);
 function navigateView(view){
  if(state.screen===view)return;
+ flushPendingWrites();
  saveOriginRoute();
  state.screen=view;state.sidebarOpen=false;
  setRoute();render(true);window.scrollTo({top:0});
@@ -130,6 +132,7 @@ async function initCloud(){
   await a.signInAnonymously(fb.auth);
   state.listen.push(d.onSnapshot(pagesColl(),snap=>{
    state.pages=snap.docs.map(x=>({id:x.id,...x.data()})).sort(sortByOrder);
+    for(const [key,draft] of state.drafts)if(key.startsWith('pages:')){const i=state.pages.findIndex(p=>p.id===draft.id);if(i>=0)state.pages[i]=draft;}
    if(state.pages.length===0&&!state.seeding){seedCloud();return}
    if(state.pages.length){
     if(!state.ready){
@@ -145,6 +148,7 @@ async function initCloud(){
   },err=>showError('페이지 동기화 실패: '+err.message)));
   state.listen.push(d.onSnapshot(blocksColl(),snap=>{
    state.blocks=snap.docs.map(x=>({id:x.id,...x.data()})).sort(sortByOrder);
+    for(const [key,draft] of state.drafts)if(key.startsWith('blocks:')){const i=state.blocks.findIndex(b=>b.id===draft.id);if(i>=0)state.blocks[i]=draft;}
    if(state.ready){render();refreshImages()}
   },err=>showError('본문 동기화 실패: '+err.message)));
  }catch(err){showError('Firebase 연결에 실패했습니다: '+err.message)}
@@ -178,15 +182,30 @@ function localUpdate(kind,obj){
 }
 function debounceSave(kind,item,delay=550){
  const key=kind+':'+item.id;clearTimeout(state.pending.get(key));
- localUpdate(kind,item);
- const timer=setTimeout(async()=>{state.pending.delete(key);try{await put(kind,item)}catch(err){notice('자동 저장 실패: '+err.message)}},delay);
+ localUpdate(kind,item);state.drafts.set(key,item);
+ const timer=setTimeout(async()=>{
+  state.pending.delete(key);
+  try{await put(kind,item);if(state.drafts.get(key)===item)state.drafts.delete(key)}
+  catch(err){notice('자동 저장 실패: '+err.message)}
+ },delay);
  state.pending.set(key,timer)
 }
 async function saveImmediate(kind,item){
  const key=kind+':'+item.id;clearTimeout(state.pending.get(key));state.pending.delete(key);
- localUpdate(kind,item);
- try{await put(kind,item)}catch(err){notice('저장 실패: '+err.message)}
+ localUpdate(kind,item);state.drafts.set(key,item);
+ try{await put(kind,item);if(state.drafts.get(key)===item)state.drafts.delete(key)}
+ catch(err){notice('저장 실패: '+err.message)}
 }
+function flushPendingWrites(){
+ for(const [key,timer] of [...state.pending]){
+  clearTimeout(timer);state.pending.delete(key);
+  const item=state.drafts.get(key);
+  if(!item)continue;
+  const kind=key.split(':')[0];
+  put(kind,item).then(()=>{if(state.drafts.get(key)===item)state.drafts.delete(key)}).catch(err=>notice('저장 실패: '+err.message))
+ }
+}
+window.addEventListener('pagehide',flushPendingWrites);
 function iconFor(p){return e(p?.icon||'📄')}
 function pagePath(p){
  let out=[],seen=new Set(),cur=p;
@@ -250,7 +269,8 @@ function blockHTML(b){
   '<div class="block-tools"><button data-add-after="'+e(b.id)+'" aria-label="아래에 블록 추가" title="블록 추가">+</button><button data-block-menu="'+e(b.id)+'" aria-label="블록 메뉴" title="블록 메뉴">⋮</button></div>'+
   '<select class="block-type" data-block-type="'+e(b.id)+'" aria-label="블록 종류">'+options(b.type)+'</select>'+
   '<div class="block-core">'+(isTodo?'<input class="block-check" type="checkbox" data-check="'+e(b.id)+'" '+(b.checked?'checked':'')+' aria-label="체크리스트 완료">':'')+
-  '<div class="block-input" role="textbox" aria-label="블록 내용" aria-multiline="true" contenteditable="'+(b.type==='divider'?'false':'true')+'" data-block-edit="'+e(b.id)+'" data-placeholder="'+(b.type==='h1'?'큰 제목':b.type==='h2'?'제목':b.type==='todo'?'할 일': '텍스트를 입력하세요…')+'">'+e(b.text)+'</div></div></div>';
+  (b.type==='divider'?'<div class="divider-label" aria-hidden="true"></div>':
+ '<textarea class="block-input" rows="1" spellcheck="true" aria-label="블록 내용" maxlength="20000" data-block-edit="'+e(b.id)+'" placeholder="'+(b.type==='h1'?'큰 제목':b.type==='h2'?'제목':b.type==='todo'?'할 일': '텍스트를 입력하거나 /로 명령어를 선택하세요')+'">'+e(b.text)+'</textarea>')+'</div></div>';
 }
 
 function editorPage(){
@@ -261,11 +281,11 @@ function editorPage(){
  '<input class="title-input" data-title="'+e(p.id)+'" value="'+e(p.title)+'" placeholder="제목 없음" aria-label="페이지 제목">'+
  '<div class="page-meta">마지막 수정 '+stamp(p.updatedAt)+' · 변경 사항 자동 저장</div>'+
  (state.mode==='demo'?'<div class="notice">체험 모드: 작성 내용은 이 브라우저에만 저장됩니다. 다른 사람과 함께 편집하려면 Firebase를 연결해야 합니다.</div>':'')+
- '<section class="blocks">'+(pageBlocks(p.id).map(blockHTML).join('')||'<p class="hint">아직 작성한 내용이 없어요.</p>')+'</section>'+
- '<button class="block-ctrl" data-action="add-block">＋ 블록 추가</button><button class="block-ctrl" data-action="inline-page">📄 하위 페이지 추가</button><button class="block-ctrl" data-action="upload-image">🖼️ 이미지 업로드</button><button class="block-ctrl" data-action="image-url">🔗 이미지 URL 삽입</button>'+
+ '<section class="blocks">'+(pageBlocks(p.id).map(blockHTML).join('')||'<button type="button" class="empty-editor" data-action="start-writing">클릭해서 글쓰기를 시작하세요. / 명령어도 사용할 수 있어요.</button>')+'</section>'+
+ '<div class="editor-footer"><button type="button" class="continue-writing" data-action="add-block">여기를 클릭해 계속 작성…</button><button type="button" class="editor-tool" data-action="copy-document">전체 내용 복사</button><button type="button" class="editor-tool" data-action="inline-page">하위 페이지</button><button type="button" class="editor-tool" data-action="upload-image">이미지</button></div>'+
  '<div class="page-actions"><button class="page-action" data-new-child="'+e(p.id)+'">＋ 하위 페이지 만들기</button><button class="page-action" data-action="move-page">↳ 상위 페이지 변경</button><button class="page-action" data-action="delete-page">🗑 페이지 삭제</button></div>'+
  (descendants.length?'<div class="child-pages"><h2>하위 페이지</h2>'+descendants.map(x=>'<button class="child-link" data-page="'+e(x.id)+'">'+iconFor(x)+' '+e(x.title||'제목 없음')+'</button>').join('')+'</div>':'')+
- '<p class="hint">본문에서 /page로 하위 페이지를, /image로 이미지를 삽입할 수 있어요. 이미지 파일을 복사해 Ctrl+V로 붙여넣는 것도 가능해요. 블록의 종류 메뉴에서도 페이지를 추가할 수 있어요.</p></div>';
+ '<p class="editor-hint">Enter 다음 문단 · Shift+Enter 줄바꿈 · / 서식과 기능 · 여러 문단 붙여넣기 지원</p></div>';
 }
 function allPages(){
  const sorted=[...state.pages].sort(sortByOrder);
@@ -288,10 +308,11 @@ function render(force=false){
  if(!force&&isEditing()){refreshImages();return;}
  const p=state.screen==='page'?pageById(state.current):null;
  app.innerHTML='<div class="layout">'+sidebar()+'<main class="main">'+topbar(p)+(state.screen==='search'?searchPage():state.screen==='all'?allPages():editorPage())+'</main></div>';
- bind();refreshImages();
+ bind();app.querySelectorAll('textarea.block-input').forEach(autoSize);refreshImages();
 }
 function showPage(id){
  if(!pageById(id))return;
+ flushPendingWrites();
  if(state.screen!=='page'||state.current!==id)saveOriginRoute();
  state.current=id;state.screen='page';state.sidebarOpen=false;state.menu=null;
  let p=pageById(id);
@@ -354,7 +375,7 @@ function showSlashMenu(blockId){
  row.appendChild(menu);
 }
 
-async function createBlock(afterId=null,type='text'){
+async function createBlock(afterId=null,type='text',initialText='',focusAt=null){
  const current=state.current;const sorted=pageBlocks(current);
  let order=1024;
  if(afterId){
@@ -362,8 +383,8 @@ async function createBlock(afterId=null,type='text'){
   const a=sorted[ix]?.order??0;const b=sorted[ix+1]?.order;
   order=(b!==undefined)?(a+b)/2:a+1024
  }else if(sorted.length)order=(sorted[sorted.length-1].order??0)+1024;
- const item={id:uuid(),pageId:current,type,text:'',checked:false,order,createdAt:now(),updatedAt:now()};
- localUpdate('blocks',item);render(true);focusBlock(item.id);
+ const item={id:uuid(),pageId:current,type,text:initialText,checked:false,order,createdAt:now(),updatedAt:now()};
+ localUpdate('blocks',item);render(true);focusBlock(item.id,focusAt);
  try{await put('blocks',item)}catch(err){notice('블록 생성 실패: '+err.message)}
 }
 
@@ -492,7 +513,18 @@ function bindImageDrop(){
  });
 }
 
-function focusBlock(id){const el=app.querySelector('[data-block-edit="'+id+'"]');if(el){el.focus();const r=document.createRange();r.selectNodeContents(el);r.collapse(false);const s=window.getSelection();s.removeAllRanges();s.addRange(r)}}
+function autoSize(el){
+ if(!el||el.tagName!=='TEXTAREA')return;
+ el.style.height='auto';
+ el.style.height=Math.max(34,el.scrollHeight)+'px';
+}
+function focusBlock(id,offset=null){
+ const el=app.querySelector('[data-block-edit="'+id+'"]');
+ if(!el)return;
+ el.focus();
+ const n=offset===null?el.value.length:Math.min(offset,el.value.length);
+ el.setSelectionRange(n,n);autoSize(el);
+}
 function clearPending(kind,id){const k=kind+':'+id;clearTimeout(state.pending.get(k));state.pending.delete(k)}
 async function deleteBlock(id){
  const b=blockById(id);if(!b)return;clearPending('blocks',id);
