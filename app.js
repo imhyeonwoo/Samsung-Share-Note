@@ -717,6 +717,7 @@ async function mergeWithPrevious(el,b){
  if(prior.text.length+el.value.length>20000){notice('문단이 너무 길어 합칠 수 없습니다.');return true}
  const offset=prior.text.length;
  const item={...prior,text:prior.text+el.value,updatedAt:now()};
+ clearPending('blocks',prior.id);
  clearPending('blocks',b.id);
  localUpdate('blocks',item);
  state.blocks=state.blocks.filter(x=>x.id!==b.id);
