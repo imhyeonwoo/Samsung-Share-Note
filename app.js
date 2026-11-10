@@ -13,6 +13,50 @@ const params=new URLSearchParams(location.hash.slice(1));
 let space=params.get('space');
 if(!/^[0-9a-f]{48}$/.test(space||'')){space=randomSpace();history.replaceState(null,'',location.pathname+location.search+'#space='+space)}
 const demoKey='folio-workspace-v2-'+space;
+// Keep the workspace token in the URL and add a page/view route for browser history.
+function readRoute(){
+ const q=new URLSearchParams(location.hash.slice(1));
+ const view=q.get('view');
+ return {space:q.get('space'),page:q.get('page'),screen:view==='search'||view==='all'?view:'page'};
+}
+function routeHref(screen=state.screen,page=state.current){
+ const q=new URLSearchParams({space});
+ if(screen==='page'&&page)q.set('page',page);
+ else if(screen==='all'||screen==='search')q.set('view',screen);
+ return location.pathname+location.search+'#'+q.toString();
+}
+function currentHref(){return location.pathname+location.search+location.hash}
+function setRoute(replace=false){
+ const href=routeHref();
+ if(currentHref()!==href){
+  if(replace)history.replaceState({folio:true},'',href);
+  else history.pushState({folio:true},'',href);
+ }
+}
+function saveOriginRoute(){
+ // Initial workspace-only links do not contain a page ID.
+ // Make that existing history entry represent the visible page before navigating.
+ if(state.ready&&currentHref()!==routeHref())setRoute(true);
+}
+function restoreRoute(){
+ const route=readRoute();
+ if(route.space!==space){location.reload();return}
+ state.screen=route.screen;
+ if(state.ready){
+  if(route.page&&pageById(route.page))state.current=route.page;
+  else if(!pageById(state.current))state.current=children(null)[0]?.id||state.pages[0]?.id||null;
+  state.sidebarOpen=false;
+  render(true);
+ }
+}
+window.addEventListener('popstate',restoreRoute);
+window.addEventListener('hashchange',restoreRoute);
+function navigateView(view){
+ if(state.screen===view)return;
+ saveOriginRoute();
+ state.screen=view;state.sidebarOpen=false;
+ setRoute();render(true);window.scrollTo({top:0});
+}
 const e=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const now=()=>new Date().toISOString();
 function notice(msg){toast.textContent=msg;toast.classList.add('show');clearTimeout(notice.timer);notice.timer=setTimeout(()=>toast.classList.remove('show'),2900)}
@@ -71,7 +115,7 @@ function seedBlocks(){const timestamp=now();return [
 {id:'todo1',pageId:'welcome',type:'todo',text:'새 페이지 만들어 보기',checked:false,order:3072,createdAt:timestamp,updatedAt:timestamp},
 {id:'todo2',pageId:'welcome',type:'todo',text:'공유 링크 복사하기',checked:false,order:4096,createdAt:timestamp,updatedAt:timestamp}
 ]}
-function initDemo(){try{const saved=JSON.parse(localStorage.getItem(demoKey)||'null');if(saved&&Array.isArray(saved.pages)&&Array.isArray(saved.blocks)){state.pages=saved.pages;state.blocks=saved.blocks;state.images=new Map(Array.isArray(saved.images)?saved.images:[])}else{state.pages=[seedPage()];state.blocks=seedBlocks();saveDemo()}}catch{state.pages=[seedPage()];state.blocks=seedBlocks()}state.ready=true;state.current=state.pages[0]?.id||null;render()}
+function initDemo(){try{const saved=JSON.parse(localStorage.getItem(demoKey)||'null');if(saved&&Array.isArray(saved.pages)&&Array.isArray(saved.blocks)){state.pages=saved.pages;state.blocks=saved.blocks;state.images=new Map(Array.isArray(saved.images)?saved.images:[])}else{state.pages=[seedPage()];state.blocks=seedBlocks();saveDemo()}}catch{state.pages=[seedPage()];state.blocks=seedBlocks()}state.ready=true;const route=readRoute();state.screen=route.screen;state.current=(route.page&&pageById(route.page)?route.page:null)||children(null)[0]?.id||state.pages[0]?.id||null;render()}
 function pagesColl(){return fb.collection(fb.db,'spaces',space,'pages')}
 function blocksColl(){return fb.collection(fb.db,'spaces',space,'blocks')}
 async function initCloud(){
@@ -88,7 +132,14 @@ async function initCloud(){
    state.pages=snap.docs.map(x=>({id:x.id,...x.data()})).sort(sortByOrder);
    if(state.pages.length===0&&!state.seeding){seedCloud();return}
    if(state.pages.length){
-    if(!pageById(state.current))state.current=children(null)[0]?.id||state.pages[0].id;
+    if(!state.ready){
+     const route=readRoute();
+     state.screen=route.screen;
+     state.current=(route.page&&pageById(route.page)?route.page:null)||children(null)[0]?.id||state.pages[0].id;
+    }else if(!pageById(state.current)){
+     state.current=children(null)[0]?.id||state.pages[0].id;
+     setRoute(true);
+    }
     state.ready=true;render();refreshImages();
    }
   },err=>showError('페이지 동기화 실패: '+err.message)));
@@ -239,7 +290,14 @@ function render(force=false){
  app.innerHTML='<div class="layout">'+sidebar()+'<main class="main">'+topbar(p)+(state.screen==='search'?searchPage():state.screen==='all'?allPages():editorPage())+'</main></div>';
  bind();refreshImages();
 }
-function showPage(id){if(!pageById(id))return;state.current=id;state.screen='page';state.sidebarOpen=false;state.menu=null;let p=pageById(id);if(p?.parentId){let x=p;let seen=new Set();while(x?.parentId&&!seen.has(x.id)){seen.add(x.id);state.expanded.add(x.parentId);x=pageById(x.parentId)}}render(true);window.scrollTo({top:0})}
+function showPage(id){
+ if(!pageById(id))return;
+ if(state.screen!=='page'||state.current!==id)saveOriginRoute();
+ state.current=id;state.screen='page';state.sidebarOpen=false;state.menu=null;
+ let p=pageById(id);
+ if(p?.parentId){let x=p;let seen=new Set();while(x?.parentId&&!seen.has(x.id)){seen.add(x.id);state.expanded.add(x.parentId);x=pageById(x.parentId)}}
+ setRoute();render(true);window.scrollTo({top:0});
+}
 async function createPage(parentId=null){
  const id=uuid();const newPage={id,title:'제목 없음',icon:'📄',parentId:parentId||null,order:Date.now(),createdAt:now(),updatedAt:now()};
  localUpdate('pages',newPage);
@@ -462,6 +520,7 @@ async function deleteCurrentPage(){
  state.pages=state.pages.filter(x=>!affected.has(x.id));state.blocks=state.blocks.filter(x=>!removedSet.has(x.id));
  for(const id of imageIds)state.images.delete(id);
  const parent=p.parentId;state.current=pageById(parent)?.id||children(null)[0]?.id||state.pages[0]?.id||null;
+ state.screen='page';setRoute(true);
  if(state.mode==='demo'){saveDemo();render(true);return}
  try{
   const tasks=[...[...affected].map(id=>['pages',id]),...removedBlocks.map(id=>['blocks',id]),...imageIds.map(id=>['images',id])];
@@ -519,8 +578,8 @@ function bind(){
  app.querySelectorAll('[data-new-child]').forEach(x=>x.onclick=()=>createPage(x.dataset.newChild||null));
  app.querySelectorAll('[data-expand]').forEach(x=>x.onclick=()=>{const id=x.dataset.expand;if(state.expanded.has(id))state.expanded.delete(id);else state.expanded.add(id);render(true)});
  app.querySelectorAll('[data-action]').forEach(x=>x.onclick=()=>{switch(x.dataset.action){
-  case 'search':state.screen='search';state.sidebarOpen=false;render(true);document.getElementById('search-field')?.focus();break;
-  case 'home':state.screen='all';state.sidebarOpen=false;render(true);break;
+  case 'search':navigateView('search');document.getElementById('search-field')?.focus();break;
+  case 'home':navigateView('all');break;
   case 'sidebar':state.sidebarOpen=!state.sidebarOpen;render(true);break;
   case 'share':copyShare();break;
   case 'icon':renameIcon();break;
