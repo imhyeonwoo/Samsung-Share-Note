@@ -404,9 +404,9 @@ async function runCommand(commandId,blockId){
  const item={...b,type:commandId,text:'',checked:false,updatedAt:now()};
  localUpdate('blocks',item);
  render(true);
+ focusBlock(b.id,0);
  await saveImmediate('blocks',item);
  if(commandId==='divider'){await createBlock(b.id,'text');return}
- focusBlock(b.id,0)
 }
 function showSlashMenu(blockId,raw){
  document.querySelector('.slash-menu')?.remove();
@@ -432,8 +432,8 @@ async function createBlock(afterId=null,type='text',initialText='',focusAt=null)
   order=(b!==undefined)?(a+b)/2:a+1024
  }else if(sorted.length)order=(sorted[sorted.length-1].order??0)+1024;
  const item={id:uuid(),pageId:current,type,text:initialText,checked:false,order,createdAt:now(),updatedAt:now()};
- localUpdate('blocks',item);render(true);focusBlock(item.id,focusAt);
- try{await put('blocks',item)}catch(err){notice('블록 생성 실패: '+err.message)}
+ localUpdate('blocks',item);state.drafts.set('blocks:'+item.id,item);render(true);focusBlock(item.id,focusAt);
+ try{await put('blocks',item);if(state.drafts.get('blocks:'+item.id)===item)state.drafts.delete('blocks:'+item.id)}catch(err){notice('블록 생성 실패: '+err.message)}
 }
 
 const MAX_IMAGE_DATA_URL=650000; // Base64 characters; comfortably below Firestore's 1 MiB document limit.
@@ -573,7 +573,7 @@ function focusBlock(id,offset=null){
  const n=offset===null?el.value.length:Math.min(offset,el.value.length);
  el.setSelectionRange(n,n);autoSize(el);
 }
-function clearPending(kind,id){const k=kind+':'+id;clearTimeout(state.pending.get(k));state.pending.delete(k)}
+function clearPending(kind,id){const k=kind+':'+id;clearTimeout(state.pending.get(k));state.pending.delete(k);state.drafts.delete(k)}
 async function deleteBlock(id){
  const b=blockById(id);if(!b)return;clearPending('blocks',id);
  const imageId=imageRefId(b.text);
@@ -604,7 +604,7 @@ async function deleteCurrentPage(){
  if(state.mode==='demo'){saveDemo();render(true);return}
  try{
   const tasks=[...[...affected].map(id=>['pages',id]),...removedBlocks.map(id=>['blocks',id]),...imageIds.map(id=>['images',id])];
-  for(let i=0;i<tasks.length;i+=450){const batch=fb.writeBatch(fb.db);for(const [kind,id] of tasks.slice(i,i+450))batch.delete(fb.doc(kind==='pages'?pagesColl():blocksColl(),id));await batch.commit()}
+  for(let i=0;i<tasks.length;i+=450){const batch=fb.writeBatch(fb.db);for(const [kind,id] of tasks.slice(i,i+450))batch.delete(fb.doc(kind==='pages'?pagesColl():kind==='images'?imageColl():blocksColl(),id));await batch.commit()}
   if(!state.pages.length)await createPage(null);
   render(true)
  }catch(err){notice('일부 항목 삭제 실패: '+err.message)}
@@ -868,7 +868,7 @@ function bind(){
      ev.preventDefault();
      if(!x.value){
       const prior=ordered[ix-1],priorIsText=prior&&!pageRefId(prior.text)&&!imageRefId(prior.text)&&!imageURL(prior.text)&&prior.type!=='divider';
-      deleteBlock(id).then(()=>{if(priorIsText)focusBlock(prior.id)});
+      deleteBlock(id);if(priorIsText)requestAnimationFrame(()=>focusBlock(prior.id));
      }else mergeWithPrevious(x,b);
      return
     }
