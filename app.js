@@ -148,7 +148,7 @@ async function initCloud(){
   },err=>showError('페이지 동기화 실패: '+err.message)));
   state.listen.push(d.onSnapshot(blocksColl(),snap=>{
    state.blocks=snap.docs.map(x=>({id:x.id,...x.data()})).sort(sortByOrder);
-    for(const [key,draft] of state.drafts)if(key.startsWith('blocks:')){const i=state.blocks.findIndex(b=>b.id===draft.id);if(i>=0)state.blocks[i]=draft;}
+    for(const [key,draft] of state.drafts)if(key.startsWith('blocks:')){const i=state.blocks.findIndex(b=>b.id===draft.id);if(i>=0)state.blocks[i]=draft;else state.blocks.push(draft);}
    if(state.ready){render();refreshImages()}
   },err=>showError('본문 동기화 실패: '+err.message)));
  }catch(err){showError('Firebase 연결에 실패했습니다: '+err.message)}
@@ -357,23 +357,71 @@ async function createInlinePage(sourceBlockId=null){
   render(true);
  }finally{state.creatingInline=false}
 }
-function slashQuery(input){
- const q=String(input||'').trim().toLowerCase();
- return /^[/\\](?:|p|pa|pag|page|페|페이|페이지|i|im|img|ima|imag|image|이|이미|이미지)$/.test(q);
+const slashCommands=[
+ {id:'text',icon:'¶',name:'일반 텍스트',desc:'기본 문단',keys:'text 본문 기본 문단 paragraph'},
+ {id:'h1',icon:'H₁',name:'제목 1',desc:'큰 제목',keys:'h1 heading1 제목1 큰제목'},
+ {id:'h2',icon:'H₂',name:'제목 2',desc:'중간 제목',keys:'h2 heading2 제목2'},
+ {id:'h3',icon:'H₃',name:'제목 3',desc:'작은 제목',keys:'h3 heading3 제목3'},
+ {id:'bullet',icon:'•',name:'글머리 기호 목록',desc:'목록 작성',keys:'bullet ul list 목록 글머리'},
+ {id:'number',icon:'1.',name:'번호 목록',desc:'번호가 붙는 목록',keys:'number ol list 번호'},
+ {id:'todo',icon:'☑',name:'체크리스트',desc:'체크할 수 있는 할 일',keys:'todo checkbox check task 체크 할일'},
+ {id:'quote',icon:'❝',name:'인용문',desc:'인용 블록',keys:'quote 인용'},
+ {id:'code',icon:'</>',name:'코드',desc:'여러 줄 코드 작성',keys:'code 코드'},
+ {id:'divider',icon:'—',name:'구분선',desc:'가로 구분선',keys:'divider line hr 구분선'},
+ {id:'page',icon:'📄',name:'하위 페이지',desc:'현재 위치에 페이지 만들기',keys:'page subpage 하위 페이지'},
+ {id:'image',icon:'🖼️',name:'이미지 업로드',desc:'파일 선택 또는 Ctrl+V',keys:'image img 사진 그림 업로드'},
+ {id:'image-url',icon:'🔗',name:'이미지 URL',desc:'이미지 링크 붙여넣기',keys:'url image link 이미지 링크'}
+];
+function commandMatches(raw){
+ const text=String(raw||'').trim();
+ if(!/^[/\\][^\n]{0,35}$/.test(text))return [];
+ const query=text.slice(1).toLowerCase().trim();
+ return slashCommands.filter(cmd=>(cmd.id+' '+cmd.name+' '+cmd.keys).toLowerCase().includes(query));
 }
-function slashPageQuery(input){return /^[/\\](?:|p|pa|pag|page|페|페이|페이지)$/.test(String(input||'').trim().toLowerCase())}
-function showSlashMenu(blockId){
+function selectedSlashCommand(){
+ const menu=document.querySelector('.slash-menu');if(!menu)return null;
+ return menu.querySelector('.slash-command.active')?.dataset.command||null
+}
+function moveSlashSelection(delta){
+ const menu=document.querySelector('.slash-menu');
+ if(!menu)return false;
+ const buttons=[...menu.querySelectorAll('.slash-command')];
+ if(!buttons.length)return false;
+ let index=buttons.findIndex(b=>b.classList.contains('active'));
+ index=(index+delta+buttons.length)%buttons.length;
+ buttons.forEach((b,i)=>b.classList.toggle('active',i===index));
+ buttons[index].scrollIntoView({block:'nearest'});
+ return true
+}
+async function runCommand(commandId,blockId){
  document.querySelector('.slash-menu')?.remove();
+ if(commandId==='page'){await createInlinePage(blockId);return}
+ if(commandId==='image'){chooseImageFile(blockId);return}
+ if(commandId==='image-url'){await addImageURL(blockId);return}
+ const b=blockById(blockId);if(!b)return;
+ const command=slashCommands.find(c=>c.id===commandId);if(!command)return;
+ clearPending('blocks',b.id);
+ const item={...b,type:commandId,text:'',checked:false,updatedAt:now()};
+ localUpdate('blocks',item);
+ render(true);
+ await saveImmediate('blocks',item);
+ if(commandId==='divider'){await createBlock(b.id,'text');return}
+ focusBlock(b.id,0)
+}
+function showSlashMenu(blockId,raw){
+ document.querySelector('.slash-menu')?.remove();
+ const commands=commandMatches(raw);
  const row=app.querySelector('[data-row="'+blockId+'"]');
- if(!row)return;
+ if(!row||!commands.length)return;
  const menu=document.createElement('div');
- menu.className='slash-menu';
- menu.innerHTML='<button class="slash-command" type="button" data-slash="page"><span class="slash-command-icon">📄</span><span><b>새 하위 페이지</b><small>/page · Enter로 만들기</small></span><span class="slash-command-key">↵</span></button><button class="slash-command" type="button" data-slash="image"><span class="slash-command-icon">🖼️</span><span><b>이미지 삽입</b><small>/image · 업로드 파일 선택</small></span></button>';
+ menu.className='slash-menu';menu.setAttribute('role','listbox');menu.setAttribute('aria-label','명령어');
+ menu.innerHTML='<div class="slash-heading">기본 블록 · 서식과 삽입</div>'+commands.map((cmd,i)=>
+  '<button type="button" role="option" class="slash-command '+(i===0?'active':'')+'" data-command="'+cmd.id+'"><span class="slash-command-icon">'+cmd.icon+'</span><span><b>'+cmd.name+'</b><small>'+cmd.desc+'</small></span><span class="slash-command-key">'+(i===0?'↵':'')+'</span></button>').join('');
  menu.addEventListener('pointerdown',ev=>ev.preventDefault());
- menu.querySelector('[data-slash="page"]').addEventListener('click',()=>createInlinePage(blockId));
- menu.querySelector('[data-slash="image"]').addEventListener('click',()=>{menu.remove();chooseImageFile(blockId)});
+ menu.querySelectorAll('[data-command]').forEach(btn=>btn.addEventListener('click',()=>runCommand(btn.dataset.command,blockId)));
  row.appendChild(menu);
 }
+
 
 async function createBlock(afterId=null,type='text',initialText='',focusAt=null){
  const current=state.current;const sorted=pageBlocks(current);
@@ -603,6 +651,150 @@ async function actOnBlock(id,action){
  const other=siblings[i+(action==='up'?-1:1)];if(!other)return;
  const old=b.order;await Promise.all([saveImmediate('blocks',{...b,order:other.order,updatedAt:now()}),saveImmediate('blocks',{...other,order:old,updatedAt:now()})]);render(true)
 }
+
+function markdownLine(raw){
+ const text=String(raw);
+ const rules=[
+  [/^###\s+(.+)$/,'h3'],[/^##\s+(.+)$/,'h2'],[/^#\s+(.+)$/,'h1'],
+  [/^[-*]\s+\[([xX ])\]\s*(.*)$/,'todo'],
+  [/^[-*]\s+(.+)$/,'bullet'],[/^\d+[.)]\s+(.+)$/,'number'],
+  [/^>\s+(.+)$/,'quote']
+ ];
+ for(const [reg,type] of rules){
+  const m=text.match(reg);
+  if(!m)continue;
+  if(type==='todo')return {type,text:m[2],checked:m[1].toLowerCase()==='x'};
+  return {type,text:m[1],checked:false}
+ }
+ return {type:'text',text,checked:false}
+}
+function matchMarkdownShortcut(text){
+ const map=[[/^# $/,'h1'],[/^## $/,'h2'],[/^### $/,'h3'],[/^[-*] $/,'bullet'],[/^1[.)] $/,'number'],[/^> $/,'quote'],[/^[-*] \[ \] $/,'todo']];
+ return map.find(([re])=>re.test(text))?.[1]||null
+}
+async function applyShorthand(block,type){
+ const update={...block,type,text:'',checked:false,updatedAt:now()};
+ clearPending('blocks',block.id);
+ localUpdate('blocks',update);render(true);focusBlock(block.id,0);
+ await saveImmediate('blocks',update)
+}
+function newBlockAfter(block,type,text,checked=false,order=null){
+ return {id:uuid(),pageId:block.pageId,type,text,checked,
+  order:order??afterOrder(block.pageId,block.id),createdAt:now(),updatedAt:now()}
+}
+async function splitBlockAtCursor(el,block){
+ const start=el.selectionStart,end=el.selectionEnd;
+ const current=el.value;const before=current.slice(0,start),after=current.slice(end);
+ if(!before&&!after&&['bullet','number','todo','quote','h1','h2','h3'].includes(block.type)){
+  await applyShorthand(block,'text');return
+ }
+ const original={...block,text:before,updatedAt:now()};
+ debounceSave('blocks',original);
+ let nextType=['bullet','number','todo'].includes(block.type)?block.type:'text';
+ await createBlock(block.id,nextType,after,0);
+}
+async function mergeWithPrevious(el,b){
+ const blocks=pageBlocks(b.pageId),index=blocks.findIndex(x=>x.id===b.id);
+ if(index<=0)return false;
+ const prior=blocks[index-1];
+ if(!prior||pageRefId(prior.text)||imageRefId(prior.text)||imageURL(prior.text)||prior.type==='divider')return false;
+ if(prior.text.length+el.value.length>20000){notice('문단이 너무 길어 합칠 수 없습니다.');return true}
+ const offset=prior.text.length;
+ const item={...prior,text:prior.text+el.value,updatedAt:now()};
+ clearPending('blocks',b.id);
+ localUpdate('blocks',item);
+ state.blocks=state.blocks.filter(x=>x.id!==b.id);
+ state.drafts.set('blocks:'+item.id,item);
+ render(true);focusBlock(item.id,offset);
+ try{
+  if(state.mode==='cloud'){
+   const batch=fb.writeBatch(fb.db);
+   batch.set(fb.doc(blocksColl(),item.id),item);
+   batch.delete(fb.doc(blocksColl(),b.id));
+   await batch.commit();
+  }else saveDemo();
+  if(state.drafts.get('blocks:'+item.id)===item)state.drafts.delete('blocks:'+item.id);
+ }catch(err){notice('문단 병합 저장 실패: '+err.message)}
+ return true
+}
+function clipboardLines(value){
+ const normalized=String(value).replace(/\r\n?/g,'\n');
+ const raw=normalized.split('\n');
+ if(raw.length<=250)return raw;
+ // Keep all content while avoiding thousands of individual Firestore writes.
+ const group=Math.ceil(raw.length/250);
+ const grouped=[];
+ for(let i=0;i<raw.length;i+=group)grouped.push(raw.slice(i,i+group).join('\n'));
+ return grouped
+}
+async function pasteMultiline(el,b,plain){
+ if(plain.length>300000){notice('붙여넣기가 너무 깁니다. 내용을 나눠서 붙여넣어 주세요.');return}
+ const before=el.value.slice(0,el.selectionStart),after=el.value.slice(el.selectionEnd);
+ const chunks=clipboardLines(plain);
+ const first=before+chunks[0];
+ let current={...b,text:first,updatedAt:now()};
+ if(!before&&!b.text.trim()){
+  const parsed=markdownLine(chunks[0]);
+  current={...current,type:parsed.type,text:parsed.text,checked:parsed.checked}
+ }
+ const source=pageBlocks(b.pageId),pos=source.findIndex(x=>x.id===b.id);
+ const next=source[pos+1];const n=chunks.length-1;
+ const step=next?(next.order-b.order)/(n+1):1024;
+ const additions=[];
+ for(let i=1;i<chunks.length;i++){
+  const parsed=markdownLine(chunks[i]);
+  const isLast=i===chunks.length-1;
+  const text=parsed.text+(isLast?after:'');
+  if(text.length>20000){notice('일부 문단이 너무 깁니다. 텍스트를 나눠서 붙여넣어 주세요.');return}
+  additions.push(newBlockAfter(b,parsed.type,text,parsed.checked,b.order+step*i))
+ }
+ if(current.text.length>20000){notice('문단이 너무 깁니다. 나눠서 붙여넣어 주세요.');return}
+ clearPending('blocks',b.id);
+ const all=[current,...additions];
+ for(const item of all){localUpdate('blocks',item);state.drafts.set('blocks:'+item.id,item)}
+ render(true);
+ focusBlock(additions.at(-1)?.id||b.id,additions.length?additions.at(-1).text.length-after.length:current.text.length);
+ try{
+  if(state.mode==='cloud'){
+   for(let k=0;k<all.length;k+=400){
+    const batch=fb.writeBatch(fb.db);
+    for(const item of all.slice(k,k+400))batch.set(fb.doc(blocksColl(),item.id),item);
+    await batch.commit()
+   }
+  }else saveDemo();
+  for(const item of all){const key='blocks:'+item.id;if(state.drafts.get(key)===item)state.drafts.delete(key)}
+  notice(chunks.length+'개 문단을 붙여넣었어요.')
+ }catch(err){notice('여러 문단 저장 실패: '+err.message)}
+}
+function handleTextPaste(ev){
+ if(ev.defaultPrevented)return;
+ const el=ev.target.closest('textarea[data-block-edit]');
+ if(!el)return;
+ const b=blockById(el.dataset.blockEdit);
+ if(!b)return;
+ const text=ev.clipboardData?.getData('text/plain');
+ if(!text||!text.includes('\n')||b.type==='code')return;
+ ev.preventDefault();
+ pasteMultiline(el,b,text)
+}
+function plainBlock(b){
+ const pageId=pageRefId(b.text),imageId=imageRefId(b.text),url=imageURL(b.text);
+ if(pageId)return '📄 '+(pageById(pageId)?.title||'삭제된 페이지');
+ if(imageId||url)return '[이미지]';
+ const prefix={h1:'# ',h2:'## ',h3:'### ',bullet:'- ',number:'1. ',todo:b.checked?'- [x] ':'- [ ] ',quote:'> '}[b.type]||'';
+ if(b.type==='divider')return '---';
+ return prefix+b.text
+}
+async function copyDocument(){
+ const p=pageById(state.current);if(!p)return;
+ const content=[p.title,'',...pageBlocks(p.id).map(plainBlock)].join('\n');
+ try{await navigator.clipboard.writeText(content);notice('현재 페이지 전체 내용을 복사했어요.')}
+ catch(err){
+  modal.className='share-modal';modal.innerHTML='<h2>전체 내용 복사</h2><textarea id="copy-doc-content" style="width:100%;min-height:220px"></textarea><div class="modal-actions"><button data-close-modal>닫기</button></div>';
+  modal.showModal();modal.querySelector('textarea').value=content;modal.querySelector('textarea').select();modal.querySelector('[data-close-modal]').onclick=()=>modal.close();
+ }
+}
+
 function bind(){
  app.querySelectorAll('[data-page]').forEach(x=>x.onclick=()=>showPage(x.dataset.page));
  bindImageDrop();
