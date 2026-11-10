@@ -96,3 +96,9 @@ textarea.block-input::placeholder{color:#b6beb6;opacity:1}
  .editor-tool{font-size:10px;padding:8px}
  .slash-menu{left:0}
 }
+
+
+/* Correct sequential numbering instead of a hardcoded 1. */
+.block.number .block-core::before{content:attr(data-counter) ".";position:absolute;left:-24px;top:10px;font-size:12px;color:#748772;font-weight:600}
+.status{white-space:nowrap}
+@media(max-width:650px){.block.number .block-core::before{left:-17px}}
