@@ -798,7 +798,7 @@ async function copyDocument(){
 function bind(){
  app.querySelectorAll('[data-page]').forEach(x=>x.onclick=()=>showPage(x.dataset.page));
  bindImageDrop();
- const blockArea=app.querySelector('.blocks');if(blockArea)blockArea.addEventListener('paste',handleImagePaste);
+ const blockArea=app.querySelector('.blocks');if(blockArea)blockArea.addEventListener('paste',ev=>{handleImagePaste(ev);if(!ev.defaultPrevented)handleTextPaste(ev)});
  app.querySelectorAll('[data-new-child]').forEach(x=>x.onclick=()=>createPage(x.dataset.newChild||null));
  app.querySelectorAll('[data-expand]').forEach(x=>x.onclick=()=>{const id=x.dataset.expand;if(state.expanded.has(id))state.expanded.delete(id);else state.expanded.add(id);render(true)});
  app.querySelectorAll('[data-action]').forEach(x=>x.onclick=()=>{switch(x.dataset.action){
@@ -808,6 +808,8 @@ function bind(){
   case 'share':copyShare();break;
   case 'icon':renameIcon();break;
   case 'add-block':createBlock();break;
+   case 'start-writing':createBlock();break;
+   case 'copy-document':copyDocument();break;
    case 'inline-page':createInlinePage();break;
    case 'upload-image':chooseImageFile();break;
    case 'image-url':addImageURL();break;
@@ -820,20 +822,71 @@ function bind(){
  app.querySelectorAll('[data-block-menu]').forEach(x=>x.onclick=()=>blockMenu(x.dataset.blockMenu));
  app.querySelectorAll('[data-block-type]').forEach(x=>x.onchange=async()=>{const b=blockById(x.dataset.blockType);if(!b)return;if(x.value==='page'){createInlinePage(b.id);return}if(x.value==='image'){chooseImageFile(b.id);return}await saveImmediate('blocks',{...b,type:x.value,updatedAt:now()});render(true)});
  app.querySelectorAll('[data-check]').forEach(x=>x.onchange=async()=>{const b=blockById(x.dataset.check);if(b){await saveImmediate('blocks',{...b,checked:x.checked,updatedAt:now()});render(true)}});
- app.querySelectorAll('[data-block-edit]').forEach(x=>{
-  x.oninput=ev=>{const b=blockById(ev.target.dataset.blockEdit);if(!b)return;const entered=ev.target.innerText;debounceSave('blocks',{...b,text:entered,updatedAt:now()});if(slashQuery(entered))showSlashMenu(b.id);else document.querySelector('.slash-menu')?.remove()};
-  x.onblur=()=>setTimeout(()=>{document.querySelector('.slash-menu')?.remove();render()},130);
-  x.onkeydown=ev=>{
-   const id=x.dataset.blockEdit,b=blockById(id);if(!b)return;
-   if(ev.key==='Escape'){document.querySelector('.slash-menu')?.remove();return}
-   if(ev.key==='Enter'&&!ev.shiftKey&&b.type!=='code'){
-    ev.preventDefault();
-    if(slashImageQuery(x.innerText)){chooseImageFile(id);return}
-    if(slashPageQuery(x.innerText)){createInlinePage(id);return}
-    document.querySelector('.slash-menu')?.remove();createBlock(id,b.type==='todo'?'todo':b.type==='bullet'?'bullet':b.type==='number'?'number':'text');return
+ app.querySelectorAll('textarea[data-block-edit]').forEach(x=>{
+  x.oninput=()=>{
+   const b=blockById(x.dataset.blockEdit);if(!b)return;
+   autoSize(x);
+   const shortcut=matchMarkdownShortcut(x.value);
+   if(shortcut&&x.selectionStart===x.value.length){
+    document.querySelector('.slash-menu')?.remove();
+    applyShorthand(b,shortcut);return;
    }
-   if(ev.key==='Backspace'&&x.innerText.trim()===''&&pageBlocks(b.pageId).length>1){ev.preventDefault();const a=pageBlocks(b.pageId),i=a.findIndex(t=>t.id===id),previous=a[i-1]?.id||a[i+1]?.id;deleteBlock(id).then(()=>focusBlock(previous))}
-  }
+   debounceSave('blocks',{...b,text:x.value,updatedAt:now()});
+   if(commandMatches(x.value).length && x.selectionStart===x.value.length)showSlashMenu(b.id,x.value);
+   else document.querySelector('.slash-menu')?.remove()
+  };
+  x.onblur=()=>setTimeout(()=>{
+   const menu=document.querySelector('.slash-menu');
+   if(menu&&!menu.matches(':hover'))menu.remove();
+   render()
+  },160);
+  x.onkeydown=ev=>{
+   const id=x.dataset.blockEdit,b=blockById(id);
+   if(!b||ev.isComposing||ev.keyCode===229)return;
+   const menu=document.querySelector('.slash-menu');
+   if(ev.key==='Escape'){menu?.remove();return}
+   if(menu&&menu.closest('[data-row]')?.dataset.row===id){
+    if(ev.key==='ArrowDown'){ev.preventDefault();moveSlashSelection(1);return}
+    if(ev.key==='ArrowUp'){ev.preventDefault();moveSlashSelection(-1);return}
+    if((ev.key==='Enter'||ev.key==='Tab')&&!ev.shiftKey){
+     const command=selectedSlashCommand();
+     if(command){ev.preventDefault();runCommand(command,id);return}
+    }
+   }
+   if((ev.ctrlKey||ev.metaKey)&&ev.key==='Enter'){ev.preventDefault();createBlock(id,'text');return}
+   if(ev.key==='Enter'&&!ev.shiftKey&&!ev.ctrlKey&&!ev.metaKey&&!ev.altKey&&b.type!=='code'){
+    ev.preventDefault();
+    menu?.remove();
+    splitBlockAtCursor(x,b);return
+   }
+   if(ev.key==='Backspace'&&!ev.shiftKey&&x.selectionStart===0&&x.selectionEnd===0){
+    if(x.value.length===0&&b.type!=='text'){
+     ev.preventDefault();applyShorthand(b,'text');return
+    }
+    const ordered=pageBlocks(b.pageId),ix=ordered.findIndex(y=>y.id===id);
+    if(ix>0){
+     ev.preventDefault();
+     if(!x.value){
+      const prior=ordered[ix-1],priorIsText=prior&&!pageRefId(prior.text)&&!imageRefId(prior.text)&&!imageURL(prior.text)&&prior.type!=='divider';
+      deleteBlock(id).then(()=>{if(priorIsText)focusBlock(prior.id)});
+     }else mergeWithPrevious(x,b);
+     return
+    }
+   }
+   if(!ev.shiftKey&&!ev.ctrlKey&&!ev.metaKey&&!ev.altKey&&(ev.key==='ArrowUp'||ev.key==='ArrowDown')){
+    const ordered=pageBlocks(b.pageId),ix=ordered.findIndex(y=>y.id===id);
+    if(ev.key==='ArrowUp'&&x.selectionStart===0&&ix>0){
+     const prev=ordered[ix-1];if(prev&&!pageRefId(prev.text)&&!imageRefId(prev.text)&&!imageURL(prev.text)&&prev.type!=='divider'){
+      ev.preventDefault();focusBlock(prev.id);return
+     }
+    }
+    if(ev.key==='ArrowDown'&&x.selectionStart===x.value.length&&ix<ordered.length-1){
+     const next=ordered[ix+1];if(next&&!pageRefId(next.text)&&!imageRefId(next.text)&&!imageURL(next.text)&&next.type!=='divider'){
+      ev.preventDefault();focusBlock(next.id,0);return
+     }
+    }
+   }
+  };
  });
 }
 if(configured)initCloud();else initDemo();
