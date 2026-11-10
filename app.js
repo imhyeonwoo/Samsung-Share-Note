@@ -612,6 +612,7 @@ async function deleteCurrentPage(){
  const removedSet=new Set(removedBlocks);
  const imageIds=[...new Set(state.blocks.filter(b=>removedSet.has(b.id)).map(b=>imageRefId(b.text)).filter(Boolean))].filter(id=>!state.blocks.some(b=>!removedSet.has(b.id)&&imageRefId(b.text)===id));
  for(const id of removedBlocks)clearPending('blocks',id);
+ for(const id of affected)clearPending('pages',id);
  state.pages=state.pages.filter(x=>!affected.has(x.id));state.blocks=state.blocks.filter(x=>!removedSet.has(x.id));
  for(const id of imageIds)state.images.delete(id);
  const parent=p.parentId;state.current=pageById(parent)?.id||children(null)[0]?.id||state.pages[0]?.id||null;
