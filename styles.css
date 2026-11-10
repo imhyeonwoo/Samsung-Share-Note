@@ -35,3 +35,64 @@
 .slash-menu .slash-command+.slash-command{margin-top:4px;background:#fff}
 .slash-menu .slash-command+.slash-command:hover{background:#eaf1e8}
 @media(max-width:650px){.image-block .block-page-tag{width:42px}.image-frame img{max-height:470px}.block-ctrl{margin-top:10px}}
+
+
+/* Folio writing experience — unobtrusive editable paragraphs, not manual block forms */
+.block{position:relative;gap:0;margin:0;padding:1px 0;min-height:36px;align-items:flex-start}
+.block .block-tools{position:absolute;top:4px;left:-43px;width:38px;gap:1px;padding-top:0}
+.block .block-tools button{border-radius:5px}
+.block .block-tools button:hover{background:#edf2eb}
+.block .block-type{position:absolute;top:3px;left:-96px;min-width:47px;width:49px;max-width:49px;border:0;background:#f0f3ef;border-radius:5px;padding:4px 1px;opacity:0;pointer-events:none;z-index:2}
+.block:hover .block-type,.block:focus-within .block-type{opacity:1;pointer-events:auto}
+.block .block-core{min-width:0;flex:1}
+textarea.block-input{display:block;box-sizing:border-box;border:0;box-shadow:none;resize:none;outline:0;overflow:hidden;background:transparent;color:#323b34;min-height:34px;height:auto;padding:4px 1px;line-height:1.75;font-size:14px;white-space:pre-wrap;width:100%;font-family:'DM Sans','Noto Sans KR',sans-serif}
+textarea.block-input:focus{outline:0!important}
+textarea.block-input::placeholder{color:#b6beb6;opacity:1}
+.block.h1 textarea.block-input{font-size:28px;line-height:1.45;font-weight:800;letter-spacing:-.6px}
+.block.h2 textarea.block-input{font-size:22px;line-height:1.5;font-weight:750}
+.block.h3 textarea.block-input{font-size:17px;line-height:1.55;font-weight:700}
+.block.code textarea.block-input{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12.5px;padding:13px 15px;min-height:64px;line-height:1.7;border-radius:8px;background:#f4f6f3;border:1px solid #e8ebe5}
+.block.quote .block-core{padding-left:13px;border-left:3px solid #bfd0c0}
+.block.quote textarea.block-input{color:#566c5d}
+.block.bullet .block-core::before{left:-18px;top:11px}
+.block.number .block-core::before{left:-22px;top:11px}
+.block.bullet textarea.block-input,.block.number textarea.block-input{padding-left:0}
+.block.todo .block-core{display:flex;gap:9px}
+.block.todo .block-check{margin-top:10px}
+.block.todo textarea.block-input{flex:1;width:100%}
+.block.todo.checked textarea.block-input{text-decoration:line-through;color:#a5aea5}
+.block.divider .block-core{border-top:1px solid #dce3d9;margin:17px 0}
+.divider-label{height:1px}
+.empty-editor{display:block;width:100%;text-align:left;font-size:14px;color:#b1bab0;background:transparent;border:0;padding:10px 0;min-height:80px}
+.empty-editor:hover{color:#66846e}
+.editor-footer{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin:19px 0 30px}
+.continue-writing{font-size:13px;color:#b1b8b1;background:none;border:0;padding:12px 6px 12px 0;flex:1;text-align:left;min-width:180px}
+.continue-writing:hover{color:#637c69}
+.editor-tool{background:#f7f9f6;color:#718674;border:1px solid #edf1ed;border-radius:7px;padding:8px 10px;font-size:11px}
+.editor-tool:hover{background:#e8eee7;color:#425c47}
+.editor-hint{border-top:1px solid #f0f3ef;margin-top:32px;padding-top:18px;font-size:11px;color:#acb4ab;line-height:1.8}
+.slash-menu{z-index:15;width:min(355px,calc(100vw - 50px));max-height:min(440px,60vh);overflow-y:auto;left:0;top:calc(100% + 2px);padding:7px;background:#fff;box-shadow:0 15px 50px #1c332226}
+.slash-heading{font-size:10px;font-weight:800;letter-spacing:.3px;color:#a0a9a1;padding:10px 11px 5px}
+.slash-menu .slash-command{background:transparent;gap:11px;cursor:pointer}
+.slash-menu .slash-command.active,.slash-menu .slash-command:hover{background:#ecf3eb}
+.slash-command-icon{font-size:17px;font-weight:750;flex-shrink:0;width:34px;height:34px;background:#f3f6f2;border:1px solid #e8eee6;border-radius:7px}
+.slash-command small{font-size:10px}
+.block.inline-page .block-page-tag,.block.image-block .block-page-tag{position:absolute;left:-96px;top:15px;width:50px}
+.block.inline-page .block-tools,.block.image-block .block-tools{position:absolute;top:9px;left:-43px}
+.block.inline-page .block-core,.block.image-block .block-core{flex:1}
+.image-frame{padding:0}
+@media(max-width:900px){.block .block-type{left:-75px}.block.inline-page .block-page-tag,.block.image-block .block-page-tag{left:-77px}}
+@media(max-width:650px){
+ .block .block-tools{left:-23px;width:22px;gap:0}
+ .block .block-tools button{font-size:13px;padding:3px 0}
+ .block .block-type{left:-22px;top:-23px;max-width:58px;width:58px}
+ .block.inline-page .block-page-tag,.block.image-block .block-page-tag{display:none}
+ .block.inline-page .block-tools,.block.image-block .block-tools{left:-23px}
+ textarea.block-input{font-size:13px}
+ .block.h1 textarea.block-input{font-size:24px}
+ .block.h2 textarea.block-input{font-size:20px}
+ .editor-footer{gap:5px}
+ .continue-writing{min-width:140px}
+ .editor-tool{font-size:10px;padding:8px}
+ .slash-menu{left:0}
+}
