@@ -5,7 +5,7 @@ const modal=document.getElementById('modal');
 const toast=document.getElementById('toast');
 const configured=Boolean(firebaseConfig?.apiKey && firebaseConfig?.projectId && firebaseConfig?.authDomain && firebaseConfig.apiKey!=='REPLACE_ME');
 const blockTypes=[['text','텍스트'],['h1','제목 1'],['h2','제목 2'],['h3','제목 3'],['bullet','글머리 기호'],['number','번호 목록'],['todo','체크리스트'],['quote','인용'],['code','코드'],['divider','구분선'],['page','하위 페이지'],['image','이미지']];
-const state={pages:[],blocks:[],images:new Map(),imageLoading:new Set(),current:null,screen:'page',search:'',expanded:new Set(),mode:configured?'cloud':'demo',ready:false,editing:null,menu:null,sidebarOpen:false,seeding:false,creatingInline:false,listen:[],pending:new Map(),drafts:new Map(),error:null};
+const state={pages:[],blocks:[],images:new Map(),imageLoading:new Set(),current:null,screen:'page',search:'',expanded:new Set(),mode:configured?'cloud':'demo',ready:false,editing:null,menu:null,sidebarOpen:false,seeding:false,creatingInline:false,listen:[],pending:new Map(),drafts:new Map(),saveError:false,error:null};
 let fb={};
 function uuid(){return globalThis.crypto?.randomUUID?.()||'id'+Date.now().toString(36)+Math.random().toString(36).slice(2)}
 function randomSpace(){const b=new Uint8Array(24);crypto.getRandomValues(b);return Array.from(b,x=>x.toString(16).padStart(2,'0')).join('')}
@@ -180,21 +180,30 @@ function localUpdate(kind,obj){
  if(index>=0)arr[index]={...arr[index],...obj};else arr.push(obj);
  if(state.mode==='demo')saveDemo()
 }
+function saveLabel(){
+ if(state.mode==='demo')return '이 브라우저에 저장됨';
+ if(state.saveError)return '저장 실패 · 확인 필요';
+ return state.drafts.size||state.pending.size?'저장 중…':'모든 변경 저장됨'
+}
+function showSaveLabel(){
+ const node=app.querySelector('.status');
+ if(node)node.textContent=saveLabel()
+}
 function debounceSave(kind,item,delay=550){
  const key=kind+':'+item.id;clearTimeout(state.pending.get(key));
- localUpdate(kind,item);state.drafts.set(key,item);
+ localUpdate(kind,item);state.drafts.set(key,item);state.saveError=false;showSaveLabel();
  const timer=setTimeout(async()=>{
   state.pending.delete(key);
-  try{await put(kind,item);if(state.drafts.get(key)===item)state.drafts.delete(key)}
-  catch(err){notice('자동 저장 실패: '+err.message)}
+  try{await put(kind,item);if(state.drafts.get(key)===item)state.drafts.delete(key);showSaveLabel()}
+  catch(err){state.saveError=true;showSaveLabel();notice('자동 저장 실패: '+err.message)}
  },delay);
  state.pending.set(key,timer)
 }
 async function saveImmediate(kind,item){
  const key=kind+':'+item.id;clearTimeout(state.pending.get(key));state.pending.delete(key);
- localUpdate(kind,item);state.drafts.set(key,item);
- try{await put(kind,item);if(state.drafts.get(key)===item)state.drafts.delete(key)}
- catch(err){notice('저장 실패: '+err.message)}
+ localUpdate(kind,item);state.drafts.set(key,item);state.saveError=false;showSaveLabel();
+ try{await put(kind,item);if(state.drafts.get(key)===item)state.drafts.delete(key);showSaveLabel()}
+ catch(err){state.saveError=true;showSaveLabel();notice('저장 실패: '+err.message)}
 }
 function flushPendingWrites(){
  for(const [key,timer] of [...state.pending]){
@@ -202,7 +211,7 @@ function flushPendingWrites(){
   const item=state.drafts.get(key);
   if(!item)continue;
   const kind=key.split(':')[0];
-  put(kind,item).then(()=>{if(state.drafts.get(key)===item)state.drafts.delete(key)}).catch(err=>notice('저장 실패: '+err.message))
+  put(kind,item).then(()=>{if(state.drafts.get(key)===item)state.drafts.delete(key);showSaveLabel()}).catch(err=>{state.saveError=true;showSaveLabel();notice('저장 실패: '+err.message)})
  }
 }
 window.addEventListener('pagehide',flushPendingWrites);
@@ -238,7 +247,7 @@ function sidebar(){
 }
 function breadcrumbs(p){return pagePath(p).map((x,i,a)=>'<button class="crumb '+(i===a.length-1?'active':'')+'" data-page="'+e(x.id)+'">'+iconFor(x)+' '+e(x.title||'제목 없음')+'</button>'+(i<a.length-1?'<span class="crumb-sep">/</span>':'')).join('')}
 function topbar(p){return '<div class="topbar"><div class="breadcrumbs"><button class="mobile-menu" data-action="sidebar" aria-label="메뉴 열기">☰</button>'+(p?breadcrumbs(p):'<span class="crumb active">'+(state.screen==='search'?'검색':'모든 페이지')+'</span>')+'</div>'+
- '<div class="top-right"><span class="status">'+(state.mode==='cloud'?'실시간 동기화':'로컬 저장')+'</span><button class="top-btn strong" data-action="share">공유</button></div></div>'}
+ '<div class="top-right"><span class="status" aria-live="polite">'+saveLabel()+'</span><button class="top-btn strong" data-action="share">공유</button></div></div>'}
 function options(type){return blockTypes.map(([key,label])=>'<option value="'+key+'" '+(type===key?'selected':'')+'>'+label+'</option>').join('')}
 function blockHTML(b){
  const refId=pageRefId(b.text);
@@ -265,10 +274,16 @@ function blockHTML(b){
    '</figure></div></div>'
  }
  const isTodo=b.type==='todo';
+ const ordered=pageBlocks(b.pageId);
+ let number=1;
+ if(b.type==='number'){
+  const idx=ordered.findIndex(item=>item.id===b.id);
+  for(let j=idx-1;j>=0&&ordered[j]?.type==='number';j--)number++;
+ }
  return '<div class="block '+e(b.type)+(b.checked?' checked':'')+'" data-row="'+e(b.id)+'">'+
   '<div class="block-tools"><button data-add-after="'+e(b.id)+'" aria-label="아래에 블록 추가" title="블록 추가">+</button><button data-block-menu="'+e(b.id)+'" aria-label="블록 메뉴" title="블록 메뉴">⋮</button></div>'+
   '<select class="block-type" data-block-type="'+e(b.id)+'" aria-label="블록 종류">'+options(b.type)+'</select>'+
-  '<div class="block-core">'+(isTodo?'<input class="block-check" type="checkbox" data-check="'+e(b.id)+'" '+(b.checked?'checked':'')+' aria-label="체크리스트 완료">':'')+
+  '<div class="block-core" '+(b.type==='number'?'data-counter="'+number+'"':'')+'>'+(isTodo?'<input class="block-check" type="checkbox" data-check="'+e(b.id)+'" '+(b.checked?'checked':'')+' aria-label="체크리스트 완료">':'')+
   (b.type==='divider'?'<div class="divider-label" aria-hidden="true"></div>':
  '<textarea class="block-input" rows="1" spellcheck="true" aria-label="블록 내용" maxlength="20000" data-block-edit="'+e(b.id)+'" placeholder="'+(b.type==='h1'?'큰 제목':b.type==='h2'?'제목':b.type==='todo'?'할 일': '텍스트를 입력하거나 /로 명령어를 선택하세요')+'">'+e(b.text)+'</textarea>')+'</div></div>';
 }
