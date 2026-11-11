@@ -20,7 +20,7 @@ try {
       {type:'text',text:'[[folio-page:child-page]]'},
       {type:'text',text:'[[folio-page:missing-page]]'}
     ],
-    findPage:(id)=>({id,title:'하위 페이지',icon:'📄'}),
+    findPage:(id)=>id==='child-page'?{id,title:'하위 페이지',icon:'📄'}:null,
     writeRich:async(json)=>{
       window.__folioWriting=true;
       await new Promise(resolve=>setTimeout(resolve,300));
