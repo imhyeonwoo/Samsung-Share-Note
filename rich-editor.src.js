@@ -123,7 +123,7 @@ function hasClipboardFile(event){
 export async function mountFolioEditor(host,api){
  let current=api.readRich();
  let revision=current?.revision||null;
- let draft=false,saving=false,conflict=false,disposed=false,changed=0,timer=null;
+ let draft=false,saving=false,conflict=false,disposed=false,changed=0,timer=null,inFlightSave=null,navigating=false;
  let lastRemote=revision,menuQuery=null,selected=0,menuFrom=0,menuTo=0;
  const backupKey='folio-rich-unsaved-'+api.workspace+'-'+api.pageId;
  function saveCrashBackup(){
@@ -233,7 +233,14 @@ export async function mountFolioEditor(host,api){
   timer=setTimeout(()=>{timer=null;void save()},delay)
  }
  async function save(){
-  if(disposed||conflict||!draft||saving)return;
+  if(inFlightSave)return inFlightSave;
+  if(disposed||conflict||!draft)return;
+  const job=performSave();
+  inFlightSave=job;
+  try{return await job}
+  finally{if(inFlightSave===job)inFlightSave=null}
+ }
+ async function performSave(){
   saving=true;updateStatus();
   const data=editor.getJSON(),gen=changed;
   try{
@@ -313,13 +320,43 @@ export async function mountFolioEditor(host,api){
    case 'export':return exportBackup();
   }
  }
+ async function flushBeforeNavigation(){
+  clearTimeout(timer);timer=null;
+  // Autosave may already be underway, or a newer keystroke may have arrived mid-write.
+  // Wait for the active write and persist the latest draft before changing routes.
+  for(let i=0;i<6;i++){
+   if(conflict||disposed)return false;
+   if(inFlightSave){await inFlightSave;continue}
+   if(!draft)return true;
+   await save();
+  }
+  return !conflict&&!disposed&&!draft&&!saving
+ }
+ async function openEmbeddedPage(pageId){
+  if(navigating||!pageId)return;
+  if(!api.findPage(pageId)){
+   showAlert('이 하위 페이지를 찾지 못했어. 아래 하위 페이지 목록에서 확인해 줘.');
+   return
+  }
+  navigating=true;
+  try{
+   const ready=await flushBeforeNavigation();
+   if(!ready){
+    showAlert('현재 문서의 수정 내용이 아직 저장되지 않았어. 먼저 저장 상태를 확인하거나 백업한 뒤 이동해 줘.',[
+      {label:'다시 시도',fn:()=>{hideAlert();void openEmbeddedPage(pageId)}},
+      {label:'초안 백업',fn:exportBackup}
+    ]);
+    return
+   }
+   api.openPage(pageId)
+  }catch(err){showAlert('페이지 이동 실패: '+(err.message||String(err)))}
+  finally{navigating=false}
+ }
  async function insertSubpage(){
   try{
    const page=await api.createSubpage();
    editor.chain().focus().insertContent({type:'folioSubpage',attrs:{pageId:page.id}}).run();
-   await save();
-   if(!draft&&!conflict)api.openPage(page.id);
-   else showAlert('현재 문서가 저장되지 않았습니다. 저장 후 페이지를 열어 주세요.',[{label:'백업 내보내기',fn:exportBackup}])
+   await openEmbeddedPage(page.id)
   }catch(err){showAlert('하위 페이지를 생성하지 못했어: '+err.message)}
  }
  function filePicker(){
@@ -423,10 +460,15 @@ export async function mountFolioEditor(host,api){
   editor.chain().focus().deleteRange({from:menuFrom,to:menuTo}).run();
   await action(id)
  }
+ // ProseMirror may consume clicks on selectable atom nodes before they bubble.
+ // Capture the click on the stable editor root first, before node-selection handlers run.
  root.addEventListener('click',event=>{
-  const target=event.target.closest('[data-folio-subpage]');
-  if(target){event.preventDefault();void save().then(()=>{if(!draft&&!conflict)api.openPage(target.dataset.folioSubpage);else updateStatus('저장 문제를 해결한 뒤 이동해 주세요')})}
- });
+  const target=event.target instanceof Element?event.target.closest('[data-folio-subpage]'):null;
+  if(!target||!root.contains(target))return;
+  event.preventDefault();
+  event.stopPropagation();
+  void openEmbeddedPage(target.dataset.folioSubpage);
+ },true);
  root.querySelectorAll('[data-rich]').forEach(button=>{
   button.addEventListener('mousedown',event=>event.preventDefault());
   button.addEventListener('click',()=>void action(button.dataset.rich))
