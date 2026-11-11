@@ -142,3 +142,31 @@
 @media(max-width:650px){
  .tiptap.folio-document .folio-table-width-grip{width:44px;height:22px}
 }
+
+
+/* Stale links to pages removed from the workspace are not navigable.
+   Only an explicit "링크 제거" action deletes their reference node. */
+.tiptap.folio-document .folio-subpage-node.folio-page-missing{
+ border-color:#e8d5b8;
+ background:#fffaf3;
+ cursor:default;
+ flex-wrap:wrap;
+}
+.tiptap.folio-document .folio-page-missing .folio-page-title{color:#886b48;flex:1 1 190px}
+.tiptap.folio-document .folio-page-missing .folio-page-arrow{display:none}
+.tiptap.folio-document .folio-page-note{font-size:11px;color:#ac8751}
+.tiptap.folio-document .folio-page-note[hidden],
+.tiptap.folio-document .folio-remove-broken-link[hidden]{display:none!important}
+.tiptap.folio-document .folio-remove-broken-link{
+ padding:7px 11px;
+ border:1px solid #e3ccaa;
+ border-radius:6px;
+ background:#fffdfa;
+ color:#835f31;
+ font-size:11px;
+ font-weight:650;
+ white-space:nowrap;
+ cursor:pointer;
+ flex-shrink:0;
+}
+.tiptap.folio-document .folio-remove-broken-link:hover{background:#f9eddd}
