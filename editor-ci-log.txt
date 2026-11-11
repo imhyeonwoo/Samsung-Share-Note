@@ -1,6 +1,6 @@
 == install ==
 
-added 51 packages in 3s
+added 51 packages in 4s
 == build ==
 
 > folio-share-notes@2.1.0 build:editor
@@ -9,7 +9,7 @@ added 51 packages in 3s
 
   rich-editor.bundle.js  775.1kb
 
-⚡ Done in 44ms
+⚡ Done in 48ms
 == browser ==
 No VM guests are running outdated hypervisor (qemu) binaries on this host.
 Downloading Chromium 141.0.7390.37 (playwright build v1194) from https://cdn.playwright.dev/dbazure/download/playwright/builds/chromium/1194/chromium-linux.zip
@@ -61,18 +61,6 @@ PASS: column border drag changes visible column width
 PASS: drag-to-resize table columns + whole table, persisted as colwidth values
 PASS: missing page reference is labelled and removable without altering valid links
 PASS: KaTeX block/inline insertion, preview, editing and persistence
-node:internal/modules/run_main:123
-    triggerUncaughtException(
-    ^
-
-AssertionError [ERR_ASSERTION]: Content expands
-    at file:///home/runner/work/Samsung-Share-Note/Samsung-Share-Note/tests/editor-smoke.mjs:187:9 {
-  generatedMessage: false,
-  code: 'ERR_ASSERTION',
-  actual: false,
-  expected: true,
-  operator: '==',
-  diff: 'simple'
-}
-
-Node.js v22.23.4
+PASS: sidebar width drag, saved collapse state, mobile drawer and editor retention
+PASS: nested page creation, top breadcrumb click, bottom child-page click, browser Back
+PASS: real Folio embedded child card opens the child page and browser Back returns to parent
