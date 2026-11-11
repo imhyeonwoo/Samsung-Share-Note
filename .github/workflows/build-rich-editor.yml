@@ -31,6 +31,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: true
+          fetch-depth: 0
       - name: Node 22
         uses: actions/setup-node@v4
         with:
@@ -54,6 +55,8 @@ jobs:
             echo "Editor bundle unchanged"
           else
             git commit -m "Build tested Folio editor as one self-contained ProseMirror module"
+            git fetch origin main
+            git rebase origin/main
             git push origin HEAD:main
           fi
       - name: Install headless Chromium
@@ -90,5 +93,7 @@ jobs:
           git add editor-ci-result.json editor-ci-log.txt
           if ! git diff --cached --quiet; then
             git commit -m "Record Folio browser smoke result"
+            git fetch origin main
+            git rebase origin/main
             git push origin HEAD:main
           fi
