@@ -64,6 +64,51 @@ try{
  await page.waitForFunction(()=>window.__folioOpenedPage==='child-page');
  assert.equal(await page.evaluate(()=>window.__folioWrites.length),1,'The active document write must finish before opening a child page');
  console.log('PASS: editor initialized; table and bold migrated; multi-paragraph selection; toolbar table insertion; nested page click');
+
+ // Column dragging uses the built-in Tiptap resize plugin, while the ↔ grip
+ // proportionally scales all columns. Both edits must reach the persisted JSON.
+ const legacyTable=content.locator('.tableWrapper table').first();
+ const legacyWrapper=content.locator('.tableWrapper').first();
+ assert.ok(await legacyWrapper.count()>=1,'Resizable TableView must create a wrapper');
+ const initialWidths=await legacyTable.locator('tr').first().locator('th,td').evaluateAll(
+  cells=>cells.map(cell=>Math.round(cell.getBoundingClientRect().width))
+ );
+ const firstCell=await legacyTable.locator('tr').first().locator('th,td').first().boundingBox();
+ assert.ok(firstCell&&firstCell.width>30,'Column drag target has measurable width');
+ await page.mouse.move(firstCell.x+firstCell.width-1,firstCell.y+firstCell.height/2);
+ await page.waitForTimeout(180);
+ await page.mouse.down();
+ await page.mouse.move(firstCell.x+firstCell.width+86,firstCell.y+firstCell.height/2,{steps:10});
+ await page.mouse.up();
+ const columnWidths=await legacyTable.locator('tr').first().locator('th,td').evaluateAll(
+  cells=>cells.map(cell=>Math.round(cell.getBoundingClientRect().width))
+ );
+ assert.ok(columnWidths[0]>initialWidths[0]+25,
+  'Dragging a cell border must widen the first table column: '+JSON.stringify({initialWidths,columnWidths}));
+ console.log('PASS: column border drag changes visible column width');
+ const grip=legacyWrapper.locator('.folio-table-width-grip');
+ await grip.scrollIntoViewIfNeeded();
+ const tableWidthBefore=await legacyTable.evaluate(table=>Math.round(table.getBoundingClientRect().width));
+ const gripBox=await grip.boundingBox();
+ assert.ok(gripBox&&gripBox.width>10,'Whole-table resize grip is visible');
+ await page.mouse.move(gripBox.x+gripBox.width/2,gripBox.y+gripBox.height/2);
+ await page.mouse.down();
+ await page.mouse.move(gripBox.x+gripBox.width/2+110,gripBox.y+gripBox.height/2,{steps:8});
+ await page.mouse.up();
+ const tableWidthAfter=await legacyTable.evaluate(table=>Math.round(table.getBoundingClientRect().width));
+ assert.ok(tableWidthAfter>tableWidthBefore+50,
+  'Dragging whole table grip must widen it: '+JSON.stringify({tableWidthBefore,tableWidthAfter}));
+ await page.evaluate(()=>window.__folioHandle.flush());
+ await page.waitForFunction(()=>window.__folioWrites.length>=2);
+ const savedWidths=await page.evaluate(()=>{
+  const document=window.__folioWrites.at(-1);
+  const table=document.content.find(node=>node.type==='table');
+  return table?.content?.[0]?.content?.map(cell=>cell.attrs?.colwidth?.[0]||null)
+ });
+ assert.ok(Array.isArray(savedWidths)&&savedWidths.every(w=>typeof w==='number'&&w>=64),
+  'Saved table cells must contain durable colwidth attributes: '+JSON.stringify(savedWidths));
+ console.log('PASS: drag-to-resize table columns + whole table, persisted as colwidth values');
+
  // End-to-end navigation smoke with Firestore disabled only in this local test.
  const token='a'.repeat(48);
  await page.goto('http://127.0.0.1:'+port+'/index.html#space='+token);
