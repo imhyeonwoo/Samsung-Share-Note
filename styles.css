@@ -102,3 +102,52 @@ textarea.block-input::placeholder{color:#b6beb6;opacity:1}
 .block.number .block-core::before{content:attr(data-counter) ".";position:absolute;left:-24px;top:10px;font-size:12px;color:#748772;font-weight:600}
 .status{white-space:nowrap}
 @media(max-width:650px){.block.number .block-core::before{left:-17px}}
+
+
+/* Persistent resizable/collapsible desktop sidebar; mobile stays a sliding drawer. */
+.layout{--folio-sidebar-width:264px}
+.layout .sidebar{width:var(--folio-sidebar-width);transition:transform .18s ease}
+.layout .main{margin-left:var(--folio-sidebar-width);width:calc(100% - var(--folio-sidebar-width));transition:margin-left .18s ease,width .18s ease}
+.layout.sidebar-collapsed .sidebar{transform:translateX(-100%)}
+.layout.sidebar-collapsed .main{margin-left:0;width:100%}
+.sidebar .workspace{min-width:0}
+.sidebar .workspace-name{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sidebar-close{
+ display:inline-flex;align-items:center;justify-content:center;
+ width:29px;height:29px;padding:0;flex-shrink:0;
+ border:1px solid transparent;border-radius:7px;background:transparent;
+ color:#829486;font-size:22px;line-height:1
+}
+.sidebar-close:hover{background:#e7ede5;border-color:#d7e4d5;color:#365b3f}
+.topbar .sidebar-toggle{
+ display:inline-flex;align-items:center;justify-content:center;
+ width:33px;height:33px;margin-right:2px;flex-shrink:0;
+ border:1px solid transparent;border-radius:7px;background:transparent;
+ color:#5d7461;font-size:18px;line-height:1;padding:0
+}
+.topbar .sidebar-toggle:hover{background:#eaf1e9;border-color:#e2e9e0}
+.sidebar-resize-grip{
+ position:absolute;top:0;right:-5px;bottom:0;width:9px;
+ z-index:8;cursor:col-resize;touch-action:none;
+ background:transparent;outline:0
+}
+.sidebar-resize-grip:hover,.sidebar-resize-grip:focus-visible,
+.sidebar-resizing .sidebar-resize-grip{
+ background:#99bea2a0;
+ box-shadow:0 0 0 1px #a8c8ae55
+}
+.sidebar-resizing,.sidebar-resizing *{user-select:none!important;cursor:col-resize!important}
+.sidebar-resizing .main{transition:none!important}
+.sidebar-resizing .sidebar{transition:none!important}
+@media(max-width:650px){
+ .layout .sidebar{
+  width:min(var(--folio-sidebar-width),calc(100vw - 42px));
+  max-width:calc(100vw - 42px);
+  transform:translateX(-100%);
+  box-shadow:8px 0 40px #12221912
+ }
+ .layout .sidebar.open,.layout.sidebar-collapsed .sidebar.open{transform:translateX(0)}
+ .layout .main,.layout.sidebar-collapsed .main{margin-left:0;width:100%}
+ .sidebar-resize-grip{display:none}
+ .topbar .sidebar-toggle{margin-right:2px}
+}
