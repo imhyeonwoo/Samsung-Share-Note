@@ -1,1 +1,40 @@
-No browser-test log (prior step may have failed).
+== install ==
+
+added 49 packages in 4s
+== build ==
+
+> folio-share-notes@2.1.0 build:editor
+> esbuild rich-editor.src.js --bundle --format=esm --platform=browser --target=es2020 --minify --outfile=rich-editor.bundle.js
+
+
+  rich-editor.bundle.js  498.6kb
+
+⚡ Done in 35ms
+== browser ==
+BEWARE: your OS is not officially supported by Playwright; installing dependencies for ubuntu26.04-x64 as a fallback.
+Cannot install dependencies for ubuntu26.04-x64 with Playwright 1.56.1!
+Failed to install browsers
+Error: ERROR: Playwright does not support chromium on ubuntu26.04-x64
+== editor-smoke ==
+
+> folio-share-notes@2.1.0 test:editor
+> node tests/editor-smoke.mjs
+
+node:internal/modules/run_main:123
+    triggerUncaughtException(
+    ^
+
+browserType.launch: Executable doesn't exist at /home/runner/.cache/ms-playwright/chromium_headless_shell-1194/chrome-linux/headless_shell
+╔═════════════════════════════════════════════════════════════════════════╗
+║ Looks like Playwright Test or Playwright was just installed or updated. ║
+║ Please run the following command to download new browsers:              ║
+║                                                                         ║
+║     npx playwright install                                              ║
+║                                                                         ║
+║ <3 Playwright Team                                                      ║
+╚═════════════════════════════════════════════════════════════════════════╝
+    at /home/runner/work/Samsung-Share-Note/Samsung-Share-Note/tests/editor-smoke.mjs:22:25 {
+  name: 'Error'
+}
+
+Node.js v22.23.4

@@ -1,5 +1,8 @@
 {
-  "outcome": "skipped",
-  "source": "1ace046ecf57c092994ec757db6a015f5909d16e",
-  "checkedAt": "2026-11-11T02:44:26.127Z"
+  "install": "success",
+  "bundle": "success",
+  "browser": "success",
+  "smoke": "success",
+  "source": "8462dea76617e5948fd4ec40ed6b09d936183a95",
+  "checkedAt": "2026-11-11T02:45:31.509Z"
 }\n
