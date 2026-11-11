@@ -335,6 +335,61 @@ export async function mountFolioEditor(host,api){
   editor.commands.setContent(incoming.json,{emitUpdate:false});
   decorate();updateStatus('다른 팀원의 수정 내용이 반영됨')
  }
+ function showMathEditor(kind='block',position=null){
+  if(disposed)return;
+  if(mathDialog){mathDialog.querySelector('textarea')?.focus();return}
+  const original=Number.isInteger(position)?editor.state.doc.nodeAt(position):null;
+  const editing=Boolean(original&&(original.type.name==='folioMathInline'||original.type.name==='folioMathBlock'));
+  const typeName=editing?original.type.name:kind==='inline'?'folioMathInline':'folioMathBlock';
+  const dlg=document.createElement('dialog');
+  dlg.className='folio-math-dialog';mathDialog=dlg;
+  dlg.innerHTML='<form method="dialog" class="folio-math-panel">'+
+   '<div class="folio-math-head"><h2>'+(editing?'수식 수정':'수식 삽입')+
+   '</h2><button type="button" class="folio-math-close" aria-label="닫기">×</button></div>'+
+   '<label for="folio-latex-input">LaTeX 수식</label>'+
+   '<textarea id="folio-latex-input" rows="4" maxlength="2000" spellcheck="false" placeholder="예: Z=\\sqrt{R^2+(X_L-X_C)^2}"></textarea>'+
+   '<div class="folio-math-preview-label">미리보기</div>'+
+   '<div class="folio-math-preview" aria-live="polite"></div>'+
+   '<p class="folio-math-hint">LaTeX 형식 입력 · Ctrl + Enter로 저장 · 수식을 클릭하면 수정</p>'+
+   '<div class="folio-math-buttons"><button type="button" data-math-cancel>취소</button>'+
+   '<button type="submit" class="folio-math-apply">'+(editing?'변경 사항 적용':'수식 삽입')+'</button></div></form>';
+  document.body.append(dlg);
+  const field=dlg.querySelector('textarea'),preview=dlg.querySelector('.folio-math-preview');
+  field.value=editing?original.attrs.latex||'':'';
+  function draw(){
+   const latex=field.value.trim();
+   try{katex.render(latex||'\\square',preview,{
+    displayMode:typeName==='folioMathBlock',throwOnError:false,
+    trust:false,strict:'ignore',maxExpand:100,maxSize:20,output:'htmlAndMathml'
+   })}catch(err){preview.textContent=err.message}
+  }
+  dlg.querySelector('[data-math-cancel]').addEventListener('click',()=>dlg.close());
+  dlg.querySelector('.folio-math-close').addEventListener('click',()=>dlg.close());
+  dlg.addEventListener('close',()=>{dlg.remove();if(mathDialog===dlg)mathDialog=null});
+  field.addEventListener('input',draw);
+  field.addEventListener('keydown',event=>{
+   if(event.key==='Enter'&&(event.ctrlKey||event.metaKey)){
+    event.preventDefault();dlg.querySelector('form').requestSubmit()
+   }
+  });
+  dlg.querySelector('form').addEventListener('submit',event=>{
+   event.preventDefault();
+   const latex=field.value.trim();
+   if(!latex){field.focus();return}
+   if(editing){
+    const node=editor.state.doc.nodeAt(position);
+    if(!node||node.type.name!==typeName){
+     preview.textContent='수식 위치가 변경됐어. 창을 닫고 다시 시도해 줘.';return
+    }
+    editor.view.dispatch(editor.state.tr.setNodeMarkup(position,null,{...node.attrs,latex},node.marks));
+   }else{
+    editor.chain().focus().insertContent({type:typeName,attrs:{latex}}).run()
+   }
+   dlg.close();editor.commands.focus()
+  });
+  draw();dlg.showModal();field.focus()
+ }
+
  function action(id){
   const chain=editor.chain().focus();
   switch(id){
@@ -352,6 +407,8 @@ export async function mountFolioEditor(host,api){
    case 'code':return chain.toggleCodeBlock().run();
    case 'rule':return chain.setHorizontalRule().run();
    case 'table':return chain.insertTable({rows:3,cols:3,withHeaderRow:true}).run();
+   case 'math':return showMathEditor('block');
+   case 'math-inline':return showMathEditor('inline');
    case 'row':return chain.addRowAfter().run();
    case 'col':return chain.addColumnAfter().run();
    case 'delrow':return chain.deleteRow().run();
@@ -659,6 +716,22 @@ export async function mountFolioEditor(host,api){
   editor.chain().focus().deleteRange({from:location.pos,to:location.pos+location.node.nodeSize}).run();
   updateStatus('끊어진 링크 제거 중 · 자동 저장')
  }
+ // Clickable, keyboard-accessible math atom nodes open the LaTeX editor.
+ root.addEventListener('click',event=>{
+  const el=event.target instanceof Element?event.target.closest('[data-folio-math]'):null;
+  if(!el||!root.contains(el))return;
+  event.preventDefault();event.stopPropagation();
+  const pos=el.__folioMathGetPos?.();
+  if(Number.isInteger(pos))showMathEditor(el.dataset.folioMath,pos);
+ },true);
+ root.addEventListener('keydown',event=>{
+  if(event.key!=='Enter'&&event.key!==' ')return;
+  const el=event.target instanceof Element?event.target.closest('[data-folio-math]'):null;
+  if(!el||!root.contains(el))return;
+  event.preventDefault();event.stopPropagation();
+  const pos=el.__folioMathGetPos?.();
+  if(Number.isInteger(pos))showMathEditor(el.dataset.folioMath,pos);
+ },true);
  // ProseMirror may consume clicks on selectable atom nodes before they bubble.
  // Capture the click on the stable editor root first, before node-selection handlers run.
  root.addEventListener('click',event=>{
@@ -698,6 +771,6 @@ export async function mountFolioEditor(host,api){
   refreshReferences:decorate,
   flush(){clearTimeout(timer);timer=null;return save()},
   exportBackup,
-  destroy(){disposed=true;clearTimeout(timer);menu.remove();editor.destroy()}
+  destroy(){disposed=true;clearTimeout(timer);menu.remove();mathDialog?.close();editor.destroy()}
  }
 }
