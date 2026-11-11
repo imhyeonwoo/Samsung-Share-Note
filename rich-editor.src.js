@@ -8,6 +8,48 @@ import { TableMap } from '@tiptap/pm/tables';
 import { TaskList, TaskItem } from '@tiptap/extension-list';
 import { Markdown } from '@tiptap/markdown';
 import { Placeholder } from '@tiptap/extensions';
+import katex from 'katex';
+
+// Store only the LaTeX source in revisioned Tiptap JSON; KaTeX renders it as safe HTML.
+function createFolioMathNode(inline){
+ const name=inline?'folioMathInline':'folioMathBlock';
+ const tag=inline?'span':'div';
+ const attr=inline?'data-folio-math-inline':'data-folio-math-block';
+ return Node.create({
+  name,group:inline?'inline':'block',inline,atom:true,selectable:true,draggable:false,
+  addAttributes(){return {latex:{default:''}}},
+  parseHTML(){return [{tag:tag+'['+attr+']',getAttrs:el=>({latex:el.getAttribute('data-latex')||''})}]},
+  renderHTML({node,HTMLAttributes}){
+   return [tag,mergeAttributes(HTMLAttributes,{[attr]:'','data-latex':node.attrs.latex||'',class:'folio-math-static'}),node.attrs.latex||'수식']
+  },
+  addNodeView(){
+   return ({node,getPos})=>{
+    let current=node;
+    const dom=document.createElement(tag);
+    dom.className='folio-math-node '+(inline?'folio-math-inline':'folio-math-block');
+    dom.setAttribute('data-folio-math',inline?'inline':'block');
+    dom.contentEditable='false';dom.tabIndex=0;dom.setAttribute('role','button');
+    dom.setAttribute('aria-label',inline?'인라인 수식 수정':'수식 블록 수정');
+    dom.title='수식을 클릭하여 수정';dom.__folioMathGetPos=getPos;
+    const rendered=document.createElement('span');
+    rendered.className='folio-math-render';dom.append(rendered);
+    function draw(){
+     const latex=String(current.attrs.latex||'');
+     dom.dataset.latex=latex;
+     try{katex.render(latex||'\\square',rendered,{
+      displayMode:!inline,throwOnError:false,trust:false,strict:'ignore',
+      maxExpand:100,maxSize:20,output:'htmlAndMathml'
+     })}catch(err){rendered.textContent=latex||'수식'}
+    }
+    draw();
+    return {dom,update(next){
+     if(next.type.name!==name)return false;
+     current=next;draw();return true
+    }}
+   }
+  }
+ })
+}
 
 const blankImage='data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
 const FolioImage=Node.create({
@@ -47,6 +89,8 @@ const actions=[
  {id:'page',label:'하위 페이지',hint:'현재 문서 안에 페이지',icon:'📄',keys:'page subpage 하위 페이지'},
  {id:'image',label:'이미지',hint:'파일 업로드',icon:'🖼️',keys:'image photo 이미지 그림'},
  {id:'image-url',label:'이미지 URL',hint:'웹 이미지 주소',icon:'🔗',keys:'url link 이미지 링크'},
+ {id:'math',label:'수식 블록',hint:'독립적인 LaTeX 수식',icon:'∑',keys:'math equation latex 수식 공식'},
+ {id:'math-inline',label:'인라인 수식',hint:'문장 안의 LaTeX 수식',icon:'𝑥',keys:'inline math latex 수식 인라인'},
  {id:'bold',label:'굵게',hint:'선택한 글 강조',icon:'B',keys:'bold strong 굵게'},
  {id:'italic',label:'기울임',hint:'이탤릭',icon:'I',keys:'italic 기울임'}
 ];
@@ -142,7 +186,7 @@ export async function mountFolioEditor(host,api){
   '<button data-rich="bullet">• 목록</button><button data-rich="ordered">1. 목록</button>'+
   '<button data-rich="task">☑ 할 일</button>'+
   '<span class="rich-sep"></span>'+
-  '<button data-rich="table">▦ 표</button><button data-rich="page">📄 페이지</button><button data-rich="image">🖼️ 이미지</button>'+
+  '<button data-rich="table">▦ 표</button><button data-rich="page">📄 페이지</button><button data-rich="image">🖼️ 이미지</button><button data-rich="math">∑ 수식</button><button data-rich="math-inline">𝑥 인라인</button>'+
   '<button data-rich="undo" title="실행 취소 Ctrl+Z">↶</button><button data-rich="redo" title="다시 실행 Ctrl+Y">↷</button>'+
   '</div>'+
   '<div class="folio-rich-tabletools" hidden><button data-rich="row">행 +</button><button data-rich="col">열 +</button><button data-rich="delrow">행 삭제</button><button data-rich="delcol">열 삭제</button><button data-rich="deltable">표 삭제</button></div>'+
@@ -154,6 +198,7 @@ export async function mountFolioEditor(host,api){
  const alert=root.querySelector('.folio-rich-alert');
  const tabletools=root.querySelector('.folio-rich-tabletools');
  const menu=newMenu();
+ let mathDialog=null;
  const editor=new Editor({
   element:area,
   extensions:[
@@ -162,7 +207,7 @@ export async function mountFolioEditor(host,api){
    TableKit.configure({table:{resizable:true,handleWidth:8,cellMinWidth:64,lastColumnResizable:true}}),
    Markdown.configure({markedOptions:{gfm:true}}),
    Placeholder.configure({placeholder:'내용을 입력하거나 /를 눌러 서식을 선택하세요…'}),
-   FolioImage,FolioSubpage
+   FolioImage,FolioSubpage,createFolioMathNode(true),createFolioMathNode(false)
   ],
   content:current?.json||{type:'doc',content:[{type:'paragraph'}]},
   editorProps:{
