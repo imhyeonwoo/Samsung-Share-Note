@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><title>Folio editor smoke</title></head>
+<body><div id="editor"></div>
+<script type="module">
+try {
+  const {mountFolioEditor}=await import('../rich-editor.bundle.js');
+  window.__folioOpenedPage=null;
+  window.__folioWrites=[];
+  window.__folioHandle=await mountFolioEditor(document.getElementById('editor'),{
+    workspace:'000000000000000000000000000000000000000000000000',
+    pageId:'test-page',
+    readRich:()=>null,
+    legacyBlocks:()=>[
+      {type:'h2',text:'자료 2. 시운전 설정'},
+      {type:'text',text:'| 항목 | 확인 내용 |'},
+      {type:'text',text:'| --- | --- |'},
+      {type:'text',text:'| TR-2 정격 | **1,500 kVA** |'},
+      {type:'text',text:'문단 하나.'},
+      {type:'text',text:'문단 둘.'},
+      {type:'text',text:'[[folio-page:child-page]]'}
+    ],
+    findPage:(id)=>({id,title:'하위 페이지',icon:'📄'}),
+    writeRich:async(json)=>{window.__folioWrites.push(json);return 'rev-'+window.__folioWrites.length},
+    createSubpage:async()=>({id:'new-page'}),
+    openPage:(id)=>{window.__folioOpenedPage=id},
+    loadImage:async()=>null,
+    addImage:async()=>null
+  });
+  window.__folioReady=true;
+} catch(err) {
+  window.__folioError=err.stack||err.message||String(err);
+  console.error('Smoke test error',err);
+}
+</script></body></html>
