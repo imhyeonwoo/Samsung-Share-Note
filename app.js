@@ -5,7 +5,80 @@ const modal=document.getElementById('modal');
 const toast=document.getElementById('toast');
 const configured=Boolean(firebaseConfig?.apiKey && firebaseConfig?.projectId && firebaseConfig?.authDomain && firebaseConfig.apiKey!=='REPLACE_ME');
 const blockTypes=[['text','텍스트'],['h1','제목 1'],['h2','제목 2'],['h3','제목 3'],['bullet','글머리 기호'],['number','번호 목록'],['todo','체크리스트'],['quote','인용'],['code','코드'],['divider','구분선'],['page','하위 페이지'],['image','이미지']];
-const state={pages:[],blocks:[],images:new Map(),imageLoading:new Set(),current:null,screen:'page',search:'',expanded:new Set(),mode:configured?'cloud':'demo',ready:false,editing:null,menu:null,sidebarOpen:false,seeding:false,creatingInline:false,listen:[],pending:new Map(),drafts:new Map(),saveError:false,blocksLoaded:false,error:null};
+const SIDEBAR_WIDTH_KEY='folio-sidebar-width-v1';
+const SIDEBAR_HIDDEN_KEY='folio-sidebar-hidden-v1';
+function readSidebarWidth(){
+ try{const n=Number(localStorage.getItem(SIDEBAR_WIDTH_KEY));return Number.isFinite(n)&&n>=210&&n<=480?n:264}catch{return 264}
+}
+function readSidebarCollapsed(){
+ try{return localStorage.getItem(SIDEBAR_HIDDEN_KEY)==='true'}catch{return false}
+}
+function isNarrowSidebar(){return window.matchMedia('(max-width:650px)').matches}
+function syncSidebarButtons(){
+ const hidden=isNarrowSidebar()?!state.sidebarOpen:state.sidebarCollapsed;
+ const btn=app.querySelector('.sidebar-toggle');
+ if(btn){btn.setAttribute('aria-label',hidden?'사이드바 펼치기':'사이드바 접기');btn.title=hidden?'사이드바 펼치기':'사이드바 접기';btn.setAttribute('aria-expanded',String(!hidden))}
+}
+function toggleSidebar(){
+ const layout=app.querySelector('.layout'),side=app.querySelector('.sidebar');
+ if(!layout||!side)return;
+ if(isNarrowSidebar()){
+  state.sidebarOpen=!state.sidebarOpen;
+  side.classList.toggle('open',state.sidebarOpen);
+ }else{
+  state.sidebarCollapsed=!state.sidebarCollapsed;
+  try{localStorage.setItem(SIDEBAR_HIDDEN_KEY,String(state.sidebarCollapsed))}catch{}
+  layout.classList.toggle('sidebar-collapsed',state.sidebarCollapsed);
+ }
+ syncSidebarButtons()
+}
+function applySidebarWidth(width,persist=false){
+ const max=Math.max(210,Math.min(480,window.innerWidth-340));
+ const next=Math.max(210,Math.min(max,Math.round(width)));
+ state.sidebarWidth=next;
+ const layout=app.querySelector('.layout');
+ layout?.style.setProperty('--folio-sidebar-width',next+'px');
+ const grip=app.querySelector('.sidebar-resize-grip');
+ grip?.setAttribute('aria-valuenow',String(next));
+ if(persist){try{localStorage.setItem(SIDEBAR_WIDTH_KEY,String(next))}catch{}}
+}
+function bindSidebarGrip(){
+ const grip=app.querySelector('.sidebar-resize-grip');
+ if(!grip)return;
+ let drag=null;
+ grip.addEventListener('pointerdown',event=>{
+  if(isNarrowSidebar()||state.sidebarCollapsed||event.button!==0)return;
+  drag={pointerId:event.pointerId,startX:event.clientX,startWidth:state.sidebarWidth};
+  event.preventDefault();
+  grip.setPointerCapture?.(event.pointerId);
+  app.querySelector('.layout')?.classList.add('sidebar-resizing')
+ });
+ grip.addEventListener('pointermove',event=>{
+  if(!drag||event.pointerId!==drag.pointerId)return;
+  applySidebarWidth(drag.startWidth+event.clientX-drag.startX)
+ });
+ const finish=event=>{
+  if(!drag||event.pointerId!==drag.pointerId)return;
+  drag=null;
+  app.querySelector('.layout')?.classList.remove('sidebar-resizing');
+  if(grip.hasPointerCapture?.(event.pointerId))grip.releasePointerCapture(event.pointerId);
+  applySidebarWidth(state.sidebarWidth,true)
+ };
+ grip.addEventListener('pointerup',finish);
+ grip.addEventListener('pointercancel',finish);
+ grip.addEventListener('keydown',event=>{
+  if(isNarrowSidebar()||state.sidebarCollapsed)return;
+  let delta=0;
+  if(event.key==='ArrowRight')delta=16;
+  if(event.key==='ArrowLeft')delta=-16;
+  if(event.key==='Home')delta=-480;
+  if(event.key==='End')delta=480;
+  if(!delta)return;
+  event.preventDefault();applySidebarWidth(state.sidebarWidth+delta,true)
+ });
+}
+
+const state={pages:[],blocks:[],images:new Map(),imageLoading:new Set(),current:null,screen:'page',search:'',expanded:new Set(),mode:configured?'cloud':'demo',ready:false,editing:null,menu:null,sidebarOpen:false,sidebarCollapsed:readSidebarCollapsed(),sidebarWidth:readSidebarWidth(),seeding:false,creatingInline:false,listen:[],pending:new Map(),drafts:new Map(),saveError:false,blocksLoaded:false,error:null};
 let fb={};
 function uuid(){return globalThis.crypto?.randomUUID?.()||'id'+Date.now().toString(36)+Math.random().toString(36).slice(2)}
 function randomSpace(){const b=new Uint8Array(24);crypto.getRandomValues(b);return Array.from(b,x=>x.toString(16).padStart(2,'0')).join('')}
@@ -357,17 +430,17 @@ function tree(parentId=null,depth=0){
 }
 function sidebar(){
  return '<aside class="sidebar '+(state.sidebarOpen?'open':'')+'"><div class="sidebar-inner">'+
- '<div class="workspace"><span class="workspace-mark">F</span><span>Folio Workspace<small>MY LITTLE NOTION</small></span></div>'+
+ '<div class="workspace"><span class="workspace-mark">F</span><span class="workspace-name">Folio Workspace<small>MY LITTLE NOTION</small></span><button type="button" class="sidebar-close" data-action="sidebar" title="사이드바 접기" aria-label="사이드바 접기">‹</button></div>'+
  '<button class="side-btn '+(state.screen==='search'?'active':'')+'" data-action="search">⌕ &nbsp; 전체 검색</button>'+
  '<button class="side-btn" data-action="home">⌂ &nbsp; 모든 페이지</button>'+
  '<div class="sidebar-label">내 페이지 <button class="add-small" data-new-child="" title="최상위 페이지 추가">+</button></div>'+
  (tree()||'<div class="empty-list">아직 페이지가 없습니다.</div>')+
  '</div><div class="sidebar-footer"><b>'+(state.mode==='cloud'?'● 실시간 공동 편집':'● 브라우저 체험 모드')+'</b><br>'+
  (state.mode==='cloud'?'링크를 가진 누구나 수정할 수 있어요.':'Firebase 연결 전에는 다른 사람과 공유되지 않아요.')+
- '<button class="side-share" data-action="share">↗ 공유 링크 복사</button></div></aside>'
+ '<button class="side-share" data-action="share">↗ 공유 링크 복사</button></div><div class="sidebar-resize-grip" role="separator" aria-label="사이드바 너비 조절" aria-orientation="vertical" tabindex="0" aria-valuemin="210" aria-valuemax="480" aria-valuenow="'+state.sidebarWidth+'" title="좌우로 드래그하거나 방향키로 너비 조절"></div></aside>'
 }
 function breadcrumbs(p){return pagePath(p).map((x,i,a)=>'<button class="crumb '+(i===a.length-1?'active':'')+'" data-page="'+e(x.id)+'">'+iconFor(x)+' '+e(x.title||'제목 없음')+'</button>'+(i<a.length-1?'<span class="crumb-sep">/</span>':'')).join('')}
-function topbar(p){return '<div class="topbar"><div class="breadcrumbs"><button class="mobile-menu" data-action="sidebar" aria-label="메뉴 열기">☰</button>'+(p?breadcrumbs(p):'<span class="crumb active">'+(state.screen==='search'?'검색':'모든 페이지')+'</span>')+'</div>'+
+function topbar(p){return '<div class="topbar"><div class="breadcrumbs"><button class="mobile-menu sidebar-toggle" data-action="sidebar" aria-label="사이드바 펼치기" title="사이드바 접기" aria-expanded="true">☰</button>'+(p?breadcrumbs(p):'<span class="crumb active">'+(state.screen==='search'?'검색':'모든 페이지')+'</span>')+'</div>'+
  '<div class="top-right"><span class="status" aria-live="polite">'+saveLabel()+'</span><button class="top-btn strong" data-action="share">공유</button></div></div>'}
 function options(type){return blockTypes.map(([key,label])=>'<option value="'+key+'" '+(type===key?'selected':'')+'>'+label+'</option>').join('')}
 function blockHTML(b){
@@ -449,12 +522,12 @@ function render(force=false){
   if(old){preserved=old;old.remove()}
  }
  const p=state.screen==='page'?pageById(state.current):null;
- app.innerHTML='<div class="layout">'+sidebar()+'<main class="main">'+topbar(p)+(state.screen==='search'?searchPage():state.screen==='all'?allPages():editorPage())+'</main></div>';
+ app.innerHTML='<div class="layout '+(state.sidebarCollapsed?'sidebar-collapsed':'')+'" style="--folio-sidebar-width:'+state.sidebarWidth+'px">'+sidebar()+'<main class="main">'+topbar(p)+(state.screen==='search'?searchPage():state.screen==='all'?allPages():editorPage())+'</main></div>';
  if(preserved){
   const replacement=app.querySelector('#folio-rich-host');
   if(replacement)replacement.replaceWith(preserved)
  }
- bind();app.querySelectorAll('textarea.block-input').forEach(autoSize);refreshImages();
+ bind();bindSidebarGrip();syncSidebarButtons();app.querySelectorAll('textarea.block-input').forEach(autoSize);refreshImages();
  if(state.screen==='page')void ensureRich();
 }
 function showPage(id){
@@ -967,7 +1040,7 @@ function bind(){
  app.querySelectorAll('[data-action]').forEach(x=>x.onclick=()=>{switch(x.dataset.action){
   case 'search':navigateView('search');document.getElementById('search-field')?.focus();break;
   case 'home':navigateView('all');break;
-  case 'sidebar':state.sidebarOpen=!state.sidebarOpen;render(true);break;
+  case 'sidebar':toggleSidebar();break;
   case 'share':copyShare();break;
   case 'icon':renameIcon();break;
   case 'add-block':createBlock();break;
