@@ -184,7 +184,8 @@ try{
  await page.evaluate(()=>window.__folioEditorBeforeSidebar=document.querySelector('.tiptap'));
  await page.locator('.sidebar-toggle').click();
  assert.equal(await page.locator('.layout.sidebar-collapsed').count(),1,'Sidebar hides');
- assert.ok(await page.locator('.main').evaluate(el=>el.getBoundingClientRect().left)<2,'Content expands');
+ await page.waitForFunction(()=>document.querySelector('.main')?.getBoundingClientRect().left<2);
+ assert.ok(await page.locator('.main').evaluate(el=>el.getBoundingClientRect().left)<2,'Content expands after sidebar transition');
  assert.ok(await page.evaluate(()=>window.__folioEditorBeforeSidebar===document.querySelector('.tiptap')),'Editor is not remounted');
  await page.reload();await page.locator('.tiptap.folio-document').waitFor();
  assert.equal(await page.locator('.layout.sidebar-collapsed').count(),1,'Hidden state survives reload');
