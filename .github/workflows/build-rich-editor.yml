@@ -1,0 +1,48 @@
+name: Build and browser-test Folio editor
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'rich-editor.src.js'
+      - 'package.json'
+      - 'tests/editor-smoke.html'
+      - 'tests/editor-smoke.mjs'
+      - '.github/workflows/build-rich-editor.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  editor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned dependencies
+        run: npm install --no-audit --no-fund
+      - name: Build unified runtime
+        run: npm run build:editor
+      - name: Install headless Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Test editor initialization and page interaction
+        run: npm run test:editor
+      - name: Commit tested bundle
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add rich-editor.bundle.js
+          if git diff --cached --quiet; then
+            echo "Editor bundle unchanged"
+          else
+            git commit -m "Build tested Folio editor as one self-contained ProseMirror module"
+            git push origin HEAD:main
+          fi
