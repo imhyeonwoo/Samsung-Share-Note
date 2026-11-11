@@ -20,7 +20,13 @@ try {
       {type:'text',text:'[[folio-page:child-page]]'}
     ],
     findPage:(id)=>({id,title:'하위 페이지',icon:'📄'}),
-    writeRich:async(json)=>{window.__folioWrites.push(json);return 'rev-'+window.__folioWrites.length},
+    writeRich:async(json)=>{
+      window.__folioWriting=true;
+      await new Promise(resolve=>setTimeout(resolve,300));
+      window.__folioWrites.push(json);
+      window.__folioWriting=false;
+      return 'rev-'+window.__folioWrites.length
+    },
     createSubpage:async()=>({id:'new-page'}),
     openPage:(id)=>{window.__folioOpenedPage=id},
     loadImage:async()=>null,
