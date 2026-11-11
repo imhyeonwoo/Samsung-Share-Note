@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
     paths:
+      - 'app.js'
+      - 'index.html'
       - 'rich-editor.src.js'
       - 'package.json'
       - 'tests/editor-smoke.html'
