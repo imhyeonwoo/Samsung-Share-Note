@@ -32,9 +32,11 @@ jobs:
         with:
           node-version: '22'
       - name: Install pinned dependencies
-        run: npm install --no-audit --no-fund
+        id: install
+        run: npm install --no-audit --no-fund 2>&1 | tee /tmp/folio-install.log
       - name: Build unified runtime
-        run: npm run build:editor
+        id: bundle
+        run: npm run build:editor 2>&1 | tee /tmp/folio-build.log
       - name: Commit compiled bundle
         run: |
           git config user.name "github-actions[bot]"
@@ -47,7 +49,8 @@ jobs:
             git push origin HEAD:main
           fi
       - name: Install headless Chromium
-        run: npx playwright install --with-deps chromium
+        id: browser
+        run: npx playwright install --with-deps chromium 2>&1 | tee /tmp/folio-browser.log
       - name: Test editor initialization and page interaction
         id: smoke
         run: npm run test:editor 2>&1 | tee /tmp/folio-editor-smoke.log
@@ -55,14 +58,21 @@ jobs:
         if: always()
         env:
           SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          BUNDLE_OUTCOME: ${{ steps.bundle.outcome }}
+          BROWSER_OUTCOME: ${{ steps.browser.outcome }}
           GIT_SOURCE_SHA: ${{ github.sha }}
         run: |
-          node -e 'const fs=require("fs");fs.writeFileSync("editor-ci-result.json",JSON.stringify({outcome:process.env.SMOKE_OUTCOME,source:process.env.GIT_SOURCE_SHA,checkedAt:new Date().toISOString()},null,2)+"\\n")'
-          if [ -f /tmp/folio-editor-smoke.log ]; then
-            tail -n 80 /tmp/folio-editor-smoke.log > editor-ci-log.txt
-          else
-            echo "No browser-test log (prior step may have failed)." > editor-ci-log.txt
-          fi
+          node -e 'const fs=require("fs");fs.writeFileSync("editor-ci-result.json",JSON.stringify({install:process.env.INSTALL_OUTCOME,bundle:process.env.BUNDLE_OUTCOME,browser:process.env.BROWSER_OUTCOME,smoke:process.env.SMOKE_OUTCOME,source:process.env.GIT_SOURCE_SHA,checkedAt:new Date().toISOString()},null,2)+"\\n")'
+          : > editor-ci-log.txt
+          for part in install build browser editor-smoke; do
+            echo "== $part ==" >> editor-ci-log.txt
+            if [ -f "/tmp/folio-$part.log" ]; then
+              tail -n 40 "/tmp/folio-$part.log" >> editor-ci-log.txt
+            else
+              echo "This step did not run." >> editor-ci-log.txt
+            fi
+          done
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add editor-ci-result.json editor-ci-log.txt
