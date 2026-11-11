@@ -129,6 +129,42 @@ try{
   'Only broken reference was deleted from saved rich document');
  console.log('PASS: missing page reference is labelled and removable without altering valid links');
 
+ // Real KaTeX block/inline math dialogs, re-edit and revisioned persistence.
+ await page.locator('[data-rich="math"]').click();
+ const formulaDialog=page.locator('.folio-math-dialog');
+ await formulaDialog.waitFor();
+ await formulaDialog.locator('textarea').fill('Z=\\sqrt{R^2+(X_L-X_C)^2}');
+ assert.equal(await formulaDialog.locator('.folio-math-preview .katex').count(),1,'KaTeX live preview works');
+ await formulaDialog.locator('.folio-math-apply').click();
+ const blockFormula=content.locator('[data-folio-math="block"]').last();
+ await blockFormula.waitFor();
+ assert.equal(await blockFormula.getAttribute('data-latex'),'Z=\\sqrt{R^2+(X_L-X_C)^2}');
+ await blockFormula.click();
+ await formulaDialog.waitFor();
+ await formulaDialog.locator('textarea').fill('Z=R+jX');
+ await formulaDialog.locator('.folio-math-apply').click();
+ assert.equal(await blockFormula.getAttribute('data-latex'),'Z=R+jX','Click-to-edit works');
+ await content.locator('p',{hasText:'문단 둘.'}).click();
+ await page.locator('[data-rich="math-inline"]').click();
+ await formulaDialog.waitFor();
+ await formulaDialog.locator('textarea').fill('P=VI\\cos\\theta');
+ await formulaDialog.locator('.folio-math-apply').click();
+ const inlineFormula=content.locator('[data-folio-math="inline"]').last();
+ await inlineFormula.waitFor();
+ assert.equal(await inlineFormula.getAttribute('data-latex'),'P=VI\\cos\\theta');
+ await page.evaluate(()=>window.__folioHandle.flush());
+ const savedFormula=await page.evaluate(()=>window.__folioWrites.at(-1));
+ const equations=[];
+ function walk(node){
+  if(node?.type==='folioMathBlock'||node?.type==='folioMathInline')equations.push(node);
+  for(const child of node?.content||[])walk(child)
+ }
+ walk(savedFormula);
+ assert.ok(equations.some(x=>x.type==='folioMathBlock'&&x.attrs?.latex==='Z=R+jX'),'Block formula is saved');
+ assert.ok(equations.some(x=>x.type==='folioMathInline'&&x.attrs?.latex==='P=VI\\cos\\theta'),'Inline formula is saved');
+ console.log('PASS: KaTeX block/inline insertion, preview, editing and persistence');
+
+
 
  // End-to-end navigation smoke with Firestore disabled only in this local test.
  const token='a'.repeat(48);
