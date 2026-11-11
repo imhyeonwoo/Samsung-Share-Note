@@ -227,7 +227,7 @@ async function ensureRich(){
  if(!host||!state.blocksLoaded||!state.current||richController?.pageId===state.current)return;
  const pageId=state.current,serial=++richMountSerial;
  try{
-  const module=await import('./rich-editor.bundle.js?v=20261111-broken-links-v1');
+  const module=await import('./rich-editor.bundle.js?v=20261111-math-sidebar-v1');
   if(serial!==richMountSerial||!host.isConnected||state.current!==pageId)return;
   const controller=await module.mountFolioEditor(host,{
    pageId,workspace:space,
