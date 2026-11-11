@@ -258,6 +258,7 @@ async function initCloud(){
      setRoute(true);
     }
     state.ready=true;render();refreshImages();
+    richController?.refreshReferences?.();
    }
   },err=>showError('페이지 동기화 실패: '+err.message)));
   state.listen.push(d.onSnapshot(blocksColl(),snap=>{
