@@ -2,7 +2,7 @@
   "install": "success",
   "bundle": "success",
   "browser": "success",
-  "smoke": "success",
-  "source": "2f08dd6d7580b6e9fbd87ca964e9a40cda60d1f6",
-  "checkedAt": "2026-11-11T02:49:37.212Z"
+  "smoke": "failure",
+  "source": "8323a249d67b05173f810b448039e86907561efa",
+  "checkedAt": "2026-11-11T03:48:27.478Z"
 }\n

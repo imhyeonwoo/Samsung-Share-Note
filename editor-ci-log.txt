@@ -1,15 +1,15 @@
 == install ==
 
-added 49 packages in 5s
+added 49 packages in 4s
 == build ==
 
 > folio-share-notes@2.1.0 build:editor
 > esbuild rich-editor.src.js --bundle --format=esm --platform=browser --target=es2020 --minify --outfile=rich-editor.bundle.js
 
 
-  rich-editor.bundle.js  498.6kb
+  rich-editor.bundle.js  499.3kb
 
-⚡ Done in 54ms
+⚡ Done in 59ms
 == browser ==
 No VM guests are running outdated hypervisor (qemu) binaries on this host.
 Downloading Chromium 141.0.7390.37 (playwright build v1194) from https://cdn.playwright.dev/dbazure/download/playwright/builds/chromium/1194/chromium-linux.zip
@@ -58,3 +58,13 @@ Chromium Headless Shell 141.0.7390.37 (playwright build v1194) downloaded to /ho
 
 PASS: editor initialized; table and bold migrated; multi-paragraph selection; toolbar table insertion; nested page click
 PASS: nested page creation, top breadcrumb click, bottom child-page click, browser Back
+node:internal/modules/run_main:123
+    triggerUncaughtException(
+    ^
+
+page.waitForFunction: Timeout 30000ms exceeded.
+    at /home/runner/work/Samsung-Share-Note/Samsung-Share-Note/tests/editor-smoke.mjs:108:14 {
+  name: 'TimeoutError'
+}
+
+Node.js v22.23.4
