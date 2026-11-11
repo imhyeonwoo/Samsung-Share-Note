@@ -20,7 +20,7 @@ permissions:
 
 jobs:
   editor:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 12
     steps:
       - name: Checkout
@@ -33,10 +33,14 @@ jobs:
           node-version: '22'
       - name: Install pinned dependencies
         id: install
-        run: npm install --no-audit --no-fund 2>&1 | tee /tmp/folio-install.log
+        run: |
+          set -o pipefail
+          npm install --no-audit --no-fund 2>&1 | tee /tmp/folio-install.log
       - name: Build unified runtime
         id: bundle
-        run: npm run build:editor 2>&1 | tee /tmp/folio-build.log
+        run: |
+          set -o pipefail
+          npm run build:editor 2>&1 | tee /tmp/folio-build.log
       - name: Commit compiled bundle
         run: |
           git config user.name "github-actions[bot]"
@@ -50,10 +54,14 @@ jobs:
           fi
       - name: Install headless Chromium
         id: browser
-        run: npx playwright install --with-deps chromium 2>&1 | tee /tmp/folio-browser.log
+        run: |
+          set -o pipefail
+          npx playwright install --with-deps chromium 2>&1 | tee /tmp/folio-browser.log
       - name: Test editor initialization and page interaction
         id: smoke
-        run: npm run test:editor 2>&1 | tee /tmp/folio-editor-smoke.log
+        run: |
+          set -o pipefail
+          npm run test:editor 2>&1 | tee /tmp/folio-editor-smoke.log
       - name: Save smoke result for verification
         if: always()
         env:
