@@ -125,6 +125,11 @@ export async function mountFolioEditor(host,api){
  let revision=current?.revision||null;
  let draft=false,saving=false,conflict=false,disposed=false,changed=0,timer=null;
  let lastRemote=revision,menuQuery=null,selected=0,menuFrom=0,menuTo=0;
+ const backupKey='folio-rich-unsaved-'+api.workspace+'-'+api.pageId;
+ function saveCrashBackup(){
+  try{localStorage.setItem(backupKey,JSON.stringify({at:Date.now(),revision,doc:editor.getJSON()}))}catch{}
+ }
+ function clearCrashBackup(){try{localStorage.removeItem(backupKey)}catch{}}
  const root=document.createElement('div');root.className='folio-rich';
  host.replaceChildren(root);
  root.innerHTML='<div class="folio-rich-toolbar" role="toolbar" aria-label="문서 서식">'+
@@ -204,7 +209,7 @@ export async function mountFolioEditor(host,api){
   },
   onUpdate(){
    if(disposed||conflict)return;
-   draft=true;changed++;schedule();updateStatus();updateMenu();refreshTableTools()
+   draft=true;changed++;saveCrashBackup();schedule();updateStatus();updateMenu();refreshTableTools()
   },
   onSelectionUpdate(){updateMenu();refreshTableTools()}
  });
@@ -234,7 +239,7 @@ export async function mountFolioEditor(host,api){
   try{
    const newRevision=await api.writeRich(data,revision);
    revision=newRevision;lastRemote=newRevision;
-   if(gen===changed)draft=false;
+   if(gen===changed){draft=false;clearCrashBackup()}
    else schedule(450);
    hideAlert()
   }catch(err){
@@ -313,7 +318,8 @@ export async function mountFolioEditor(host,api){
    const page=await api.createSubpage();
    editor.chain().focus().insertContent({type:'folioSubpage',attrs:{pageId:page.id}}).run();
    await save();
-   api.openPage(page.id)
+   if(!draft&&!conflict)api.openPage(page.id);
+   else showAlert('현재 문서가 저장되지 않았습니다. 저장 후 페이지를 열어 주세요.',[{label:'백업 내보내기',fn:exportBackup}])
   }catch(err){showAlert('하위 페이지를 생성하지 못했어: '+err.message)}
  }
  function filePicker(){
@@ -419,13 +425,25 @@ export async function mountFolioEditor(host,api){
  }
  root.addEventListener('click',event=>{
   const target=event.target.closest('[data-folio-subpage]');
-  if(target){event.preventDefault();void save().then(()=>api.openPage(target.dataset.folioSubpage))}
+  if(target){event.preventDefault();void save().then(()=>{if(!draft&&!conflict)api.openPage(target.dataset.folioSubpage);else updateStatus('저장 문제를 해결한 뒤 이동해 주세요')})}
  });
  root.querySelectorAll('[data-rich]').forEach(button=>{
   button.addEventListener('mousedown',event=>event.preventDefault());
   button.addEventListener('click',()=>void action(button.dataset.rich))
  });
  editor.on('update',()=>{decorate();refreshTableTools()});
+ try{
+  const pending=JSON.parse(localStorage.getItem(backupKey)||'null');
+  if(pending?.doc&&pending.at&&JSON.stringify(pending.doc)!==JSON.stringify(editor.getJSON())){
+   showAlert('이 브라우저에서 저장되지 않았을 수 있는 초안을 찾았어. 기존 문서에 덮어쓰기 전에 검토해 줘.',[
+    {label:'미저장 초안 복원',fn:()=>{
+      editor.commands.setContent(pending.doc,{emitUpdate:false});
+      revision=pending.revision||null;draft=true;changed++;hideAlert();schedule(200);updateStatus()
+    }},
+    {label:'현재 저장된 내용 유지',fn:()=>{clearCrashBackup();hideAlert()}}
+   ])
+  }else if(pending?.doc)clearCrashBackup()
+ }catch{}
  decorate();refreshTableTools();updateStatus(current?'저장된 문서 표시 중':'기존 블록 자료를 보존한 상태로 변환');
  return {
   pageId:api.pageId,
