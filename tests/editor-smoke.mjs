@@ -171,6 +171,33 @@ try{
  await page.goto('http://127.0.0.1:'+port+'/index.html#space='+token);
  await page.locator('.tiptap.folio-document').waitFor({timeout:20000});
  assert.equal(await page.locator('.title-input').inputValue(),'시작 페이지','Root page should render');
+
+ const sideBar=page.locator('.sidebar'),width0=await sideBar.evaluate(el=>Math.round(el.getBoundingClientRect().width));
+ const sideGripBox=await page.locator('.sidebar-resize-grip').boundingBox();
+ assert.ok(sideGripBox?.width>=8,'Sidebar resize handle exists');
+ await page.mouse.move(sideGripBox.x+4,sideGripBox.y+80);await page.mouse.down();
+ await page.mouse.move(sideGripBox.x+88,sideGripBox.y+80,{steps:8});await page.mouse.up();
+ const width1=await sideBar.evaluate(el=>Math.round(el.getBoundingClientRect().width));
+ assert.ok(width1>width0+55,'Dragging side border widens sidebar');
+ await page.reload();await page.locator('.tiptap.folio-document').waitFor();
+ assert.ok(Math.abs(await sideBar.evaluate(el=>Math.round(el.getBoundingClientRect().width))-width1)<2,'Width survives reload');
+ await page.evaluate(()=>window.__folioEditorBeforeSidebar=document.querySelector('.tiptap'));
+ await page.locator('.sidebar-toggle').click();
+ assert.equal(await page.locator('.layout.sidebar-collapsed').count(),1,'Sidebar hides');
+ assert.ok(await page.locator('.main').evaluate(el=>el.getBoundingClientRect().left)<2,'Content expands');
+ assert.ok(await page.evaluate(()=>window.__folioEditorBeforeSidebar===document.querySelector('.tiptap')),'Editor is not remounted');
+ await page.reload();await page.locator('.tiptap.folio-document').waitFor();
+ assert.equal(await page.locator('.layout.sidebar-collapsed').count(),1,'Hidden state survives reload');
+ await page.locator('.sidebar-toggle').click();
+ assert.equal(await page.locator('.layout.sidebar-collapsed').count(),0,'Sidebar reopens');
+ await page.setViewportSize({width:390,height:850});
+ await page.locator('.sidebar-toggle').click();
+ assert.equal(await page.locator('.sidebar.open').count(),1,'Mobile sidebar opens');
+ await page.locator('.sidebar-close').click();
+ assert.equal(await page.locator('.sidebar.open').count(),0,'Mobile sidebar closes');
+ await page.setViewportSize({width:1200,height:900});
+ console.log('PASS: sidebar width drag, saved collapse state, mobile drawer and editor retention');
+
  await page.locator('[data-new-child="welcome"]').first().click();
  await page.locator('.title-input').waitFor();
  const childId=await page.evaluate(()=>new URLSearchParams(location.hash.slice(1)).get('page'));
