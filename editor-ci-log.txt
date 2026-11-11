@@ -9,7 +9,7 @@ added 51 packages in 4s
 
   rich-editor.bundle.js  775.1kb
 
-⚡ Done in 90ms
+⚡ Done in 61ms
 == browser ==
 No VM guests are running outdated hypervisor (qemu) binaries on this host.
 Downloading Chromium 141.0.7390.37 (playwright build v1194) from https://cdn.playwright.dev/dbazure/download/playwright/builds/chromium/1194/chromium-linux.zip
@@ -60,5 +60,16 @@ PASS: editor initialized; table and bold migrated; multi-paragraph selection; to
 PASS: column border drag changes visible column width
 PASS: drag-to-resize table columns + whole table, persisted as colwidth values
 PASS: missing page reference is labelled and removable without altering valid links
-PASS: nested page creation, top breadcrumb click, bottom child-page click, browser Back
-PASS: real Folio embedded child card opens the child page and browser Back returns to parent
+node:internal/modules/run_main:123
+    triggerUncaughtException(
+    ^
+
+locator.click: Timeout 30000ms exceeded.
+Call log:
+  - waiting for locator('.tiptap.folio-document').locator('p').filter({ hasText: '문단 둘.' })
+
+    at /home/runner/work/Samsung-Share-Note/Samsung-Share-Note/tests/editor-smoke.mjs:147:47 {
+  name: 'TimeoutError'
+}
+
+Node.js v22.23.4
