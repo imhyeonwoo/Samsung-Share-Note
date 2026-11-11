@@ -76,3 +76,69 @@
  .tiptap.folio-document td,.tiptap.folio-document th{font-size:11px;padding:7px}
  .folio-rich-slash{max-height:250px}
 }
+
+
+/* Table column / whole-table width resizing.
+   The built-in ProseMirror column handles persist each colwidth in the document. */
+.tiptap.folio-document .tableWrapper{
+ position:relative;
+ overflow-x:auto;
+ overflow-y:visible;
+ max-width:100%;
+ margin:18px 0 22px;
+ padding-bottom:17px;
+}
+.tiptap.folio-document .tableWrapper table{
+ border-collapse:collapse;
+ table-layout:fixed;
+ width:100%;
+ max-width:none; /* never truncate manually widened tables */
+ margin:0;
+}
+.tiptap.folio-document .tableWrapper colgroup col{min-width:25px}
+.tiptap.folio-document .column-resize-handle{
+ position:absolute;
+ right:-4px;
+ top:0;
+ bottom:0;
+ width:7px;
+ background:#75a884;
+ z-index:3;
+ pointer-events:none;
+}
+.tiptap.folio-document .resize-cursor,
+.tiptap.folio-document.resize-cursor{cursor:col-resize}
+.tiptap.folio-document .folio-table-width-grip{
+ position:sticky;
+ display:flex;
+ align-items:center;
+ justify-content:center;
+ left:calc(100% - 35px);
+ bottom:0;
+ width:36px;
+ height:16px;
+ border:1px solid #adc8b2;
+ border-radius:0 0 7px 7px;
+ background:#edf6ef;
+ color:#3b7550;
+ font-size:15px;
+ line-height:1;
+ cursor:ew-resize;
+ touch-action:none;
+ user-select:none;
+ -webkit-user-select:none;
+ z-index:5;
+ margin-left:auto;
+}
+.tiptap.folio-document .folio-table-width-grip:hover,
+.folio-table-resizing .folio-table-width-grip{
+ background:#d5e9d8;
+ border-color:#81ac89;
+ color:#2a6a3a;
+}
+.folio-table-resizing,.folio-table-resizing *{cursor:ew-resize!important}
+.tiptap.folio-document .tableWrapper td,
+.tiptap.folio-document .tableWrapper th{position:relative}
+@media(max-width:650px){
+ .tiptap.folio-document .folio-table-width-grip{width:44px;height:22px}
+}
