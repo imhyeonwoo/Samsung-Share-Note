@@ -1,0 +1,23 @@
+{
+  "name": "folio-share-notes",
+  "private": true,
+  "version": "2.1.0",
+  "type": "module",
+  "scripts": {
+    "build:editor": "esbuild rich-editor.src.js --bundle --format=esm --platform=browser --target=es2020 --minify --outfile=rich-editor.bundle.js",
+    "test:editor": "node tests/editor-smoke.mjs"
+  },
+  "dependencies": {
+    "@tiptap/core": "3.31.3",
+    "@tiptap/starter-kit": "3.31.3",
+    "@tiptap/extension-table": "3.31.3",
+    "@tiptap/extension-list": "3.31.3",
+    "@tiptap/markdown": "3.31.3",
+    "@tiptap/extensions": "3.31.3",
+    "@tiptap/pm": "3.31.3"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.12",
+    "playwright": "1.56.1"
+  }
+}
