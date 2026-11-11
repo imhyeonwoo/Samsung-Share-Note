@@ -154,7 +154,7 @@ async function ensureRich(){
  if(!host||!state.blocksLoaded||!state.current||richController?.pageId===state.current)return;
  const pageId=state.current,serial=++richMountSerial;
  try{
-  const module=await import('./rich-editor.bundle.js?v=20261111-bundled-tested');
+  const module=await import('./rich-editor.bundle.js?v=20261111-inline-subpage-fix');
   if(serial!==richMountSerial||!host.isConnected||state.current!==pageId)return;
   const controller=await module.mountFolioEditor(host,{
    pageId,workspace:space,
