@@ -144,7 +144,7 @@ try{
  await formulaDialog.locator('textarea').fill('Z=R+jX');
  await formulaDialog.locator('.folio-math-apply').click();
  assert.equal(await blockFormula.getAttribute('data-latex'),'Z=R+jX','Click-to-edit works');
- await content.locator('p',{hasText:'문단 둘.'}).click();
+ await content.locator('p').first().click();
  await page.locator('[data-rich="math-inline"]').click();
  await formulaDialog.waitFor();
  await formulaDialog.locator('textarea').fill('P=VI\\cos\\theta');
