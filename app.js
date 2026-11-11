@@ -416,7 +416,7 @@ function editorPage(){
  '<input class="title-input" data-title="'+e(p.id)+'" value="'+e(p.title)+'" placeholder="제목 없음" aria-label="페이지 제목">'+
  '<div class="page-meta">마지막 수정 '+stamp(p.updatedAt)+' · 변경 사항 자동 저장</div>'+
  (state.mode==='demo'?'<div class="notice">체험 모드: 작성 내용은 이 브라우저에만 저장됩니다. 다른 사람과 함께 편집하려면 Firebase를 연결해야 합니다.</div>':'')+
- '<section class="blocks rich-blocks"><div id="folio-rich-host" data-page="'+e(p.id)+'">'+
+ '<section class="blocks rich-blocks"><div id="folio-rich-host" data-rich-page="'+e(p.id)+'">'+
  (state.blocksLoaded?'편집기를 불러오는 중…':'기존 문서를 불러오는 중…')+'</div></section>'+
  '<div class="editor-footer rich-editor-footer"><span>문단을 가로질러 선택 · 표와 굵은 글씨 · / 명령 메뉴 · 자동 저장</span></div>'+
  '<div class="page-actions"><button class="page-action" data-new-child="'+e(p.id)+'">＋ 하위 페이지 만들기</button><button class="page-action" data-action="move-page">↳ 상위 페이지 변경</button><button class="page-action" data-action="delete-page">🗑 페이지 삭제</button></div>'+
@@ -947,7 +947,10 @@ async function copyDocument(){
 
 // Stable click delegation: rerenders and live Firestore updates must never detach navigation.
 app.addEventListener('click',event=>{
- const node=event.target.closest('[data-page]');
+ // Only explicit navigation controls are clickable; the editor host may contain
+ // metadata attributes and must not swallow clicks on embedded Tiptap page cards.
+ const node=event.target instanceof Element
+  ?event.target.closest('button[data-page],a[data-page]'):null;
  if(!node||!app.contains(node))return;
  const pageId=node.dataset.page;
  if(!pageId)return;
