@@ -4,6 +4,7 @@
 import { Editor, Node, mergeAttributes } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import { TableKit } from '@tiptap/extension-table';
+import { TableMap } from '@tiptap/pm/tables';
 import { TaskList, TaskItem } from '@tiptap/extension-list';
 import { Markdown } from '@tiptap/markdown';
 import { Placeholder } from '@tiptap/extensions';
@@ -158,7 +159,7 @@ export async function mountFolioEditor(host,api){
   extensions:[
    StarterKit.configure({heading:{levels:[1,2,3]}}),
    TaskList,TaskItem.configure({nested:true}),
-   TableKit.configure({table:{resizable:false}}),
+   TableKit.configure({table:{resizable:true,handleWidth:8,cellMinWidth:64,lastColumnResizable:true}}),
    Markdown.configure({markedOptions:{gfm:true}}),
    Placeholder.configure({placeholder:'내용을 입력하거나 /를 눌러 서식을 선택하세요…'}),
    FolioImage,FolioSubpage
@@ -400,8 +401,135 @@ export async function mountFolioEditor(host,api){
   link.href=url;link.download='Folio-document-backup-'+api.pageId+'.json';document.body.appendChild(link);link.click();link.remove();
   setTimeout(()=>URL.revokeObjectURL(url),3000)
  }
+ // Resize the entire table by scaling its column widths. Persist widths in the
+ // existing ProseMirror cell 'colwidth' attributes so Firestore saves them with the document.
+ function findTableNode(tableElement){
+  const tables=[...area.querySelectorAll('table')];
+  const index=tables.indexOf(tableElement);
+  if(index<0)return null;
+  let count=0,found=null;
+  editor.state.doc.descendants((node,pos)=>{
+   if(node.type.name!=='table')return true;
+   if(count++===index){found={node,pos};return false}
+   return false
+  });
+  return found
+ }
+ function scaledColumnWidths(base,target,min=64){
+  const values=base.map(x=>Math.max(1,Number(x)||100));
+  const total=Math.max(values.length*min,Math.round(target));
+  const out=Array(values.length).fill(0),available=new Set(values.map((_,i)=>i));
+  let remaining=total;
+  while(available.size){
+   const baseTotal=[...available].reduce((a,i)=>a+values[i],0)||available.size;
+   let froze=false;
+   for(const i of [...available]){
+    const assigned=remaining*values[i]/baseTotal;
+    if(assigned<min){out[i]=min;remaining-=min;available.delete(i);froze=true}
+   }
+   if(!froze)break
+  }
+  let free=[...available];
+  let consumed=0;
+  free.forEach((i,n)=>{
+   const weight=free.reduce((a,j)=>a+values[j],0)||1;
+   const size=n===free.length-1?remaining-consumed:Math.round(remaining*values[i]/weight);
+   out[i]=Math.max(min,size);consumed+=out[i]
+  });
+  return out
+ }
+ function persistTableWidth(tableElement,newWidths){
+  const found=findTableNode(tableElement);
+  if(!found)return false;
+  const {node,pos}=found;
+  const map=TableMap.get(node);
+  if(!map.width||newWidths.length!==map.width)return false;
+  const widths=newWidths.map(x=>Math.max(64,Math.round(x)));
+  const transaction=editor.state.tr;
+  const seen=new Set();
+  for(let row=0;row<map.height;row++){
+   for(let col=0;col<map.width;col++){
+    const offset=map.map[row*map.width+col];
+    if(seen.has(offset))continue;
+    seen.add(offset);
+    const cell=node.nodeAt(offset);
+    if(!cell)continue;
+    const span=Math.max(1,cell.attrs.colspan||1);
+    const next=widths.slice(col,col+span);
+    if(!next.length)continue;
+    transaction.setNodeMarkup(pos+1+offset,null,{...cell.attrs,colwidth:next},cell.marks)
+   }
+  }
+  if(!transaction.docChanged)return false;
+  editor.view.dispatch(transaction);
+  return true
+ }
+ function decorateTableResizers(){
+  // TableView's tableWrapper survives cursor movement, while the table's tbody
+  // is the content DOM owned by ProseMirror. The handle is outside that content DOM.
+  area.querySelectorAll('.tableWrapper').forEach(wrapper=>{
+   if(wrapper.querySelector(':scope > .folio-table-width-grip'))return;
+   const table=wrapper.querySelector(':scope > table');
+   if(!table)return;
+   const grip=document.createElement('button');
+   grip.type='button';grip.contentEditable='false';
+   grip.className='folio-table-width-grip';
+   grip.setAttribute('aria-label','표 전체 너비 조절');
+   grip.title='드래그해서 표 전체 너비 조절';
+   grip.innerHTML='<span aria-hidden="true">↔</span>';
+   wrapper.append(grip);
+  })
+ }
+ let tableDrag=null;
+ function onTableWidthPointerDown(event){
+  const grip=event.target instanceof Element?event.target.closest('.folio-table-width-grip'):null;
+  if(!grip||!root.contains(grip)||event.button!==0)return;
+  const wrapper=grip.closest('.tableWrapper');
+  const table=wrapper?.querySelector('table');
+  const found=table&&findTableNode(table);
+  if(!found)return;
+  const map=TableMap.get(found.node);
+  const cols=[...table.querySelectorAll('colgroup col')];
+  const width=Math.round(table.getBoundingClientRect().width);
+  const source=Array.from({length:map.width},(_,i)=>cols[i]?.getBoundingClientRect().width||width/map.width);
+  const scale=width/(source.reduce((a,v)=>a+v,0)||width);
+  tableDrag={
+   table,grip,startX:event.clientX,startWidth:width,columns:source.map(x=>x*scale),
+   minWidth:map.width*64,target:width,
+   pointerId:event.pointerId
+  };
+  event.preventDefault();event.stopPropagation();
+  grip.setPointerCapture?.(event.pointerId);
+  root.classList.add('folio-table-resizing');
+ }
+ function onTableWidthPointerMove(event){
+  const drag=tableDrag;
+  if(!drag||event.pointerId!==drag.pointerId)return;
+  event.preventDefault();
+  drag.target=Math.max(drag.minWidth,Math.min(2600,Math.round(drag.startWidth+event.clientX-drag.startX)));
+  const widths=scaledColumnWidths(drag.columns,drag.target);
+  const cols=drag.table.querySelectorAll('colgroup col');
+  cols.forEach((col,i)=>{col.style.width=widths[i]+'px'});
+  drag.table.style.width=widths.reduce((a,b)=>a+b,0)+'px';
+  drag.grip.title='표 전체 너비: '+widths.reduce((a,b)=>a+b,0)+'px (놓으면 저장)';
+ }
+ function onTableWidthPointerUp(event){
+  const drag=tableDrag;
+  if(!drag||event.pointerId!==drag.pointerId)return;
+  const widths=scaledColumnWidths(drag.columns,drag.target);
+  tableDrag=null;root.classList.remove('folio-table-resizing');
+  if(drag.grip.hasPointerCapture?.(event.pointerId))drag.grip.releasePointerCapture(event.pointerId);
+  persistTableWidth(drag.table,widths);
+  // If the width didn't change, remove any temporary inline DOM changes.
+  editor.view.updateState(editor.state);
+ }
+ root.addEventListener('pointerdown',onTableWidthPointerDown,true);
+ root.addEventListener('pointermove',onTableWidthPointerMove,true);
+ root.addEventListener('pointerup',onTableWidthPointerUp,true);
+ root.addEventListener('pointercancel',onTableWidthPointerUp,true);
  function refreshTableTools(){
   tabletools.hidden=!editor.isActive('table');
+  decorateTableResizers();
  }
  function decorate(){
   if(disposed)return;
