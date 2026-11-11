@@ -29,7 +29,7 @@ const FolioSubpage=Node.create({
  renderHTML({node,HTMLAttributes}){
   return ['div',mergeAttributes(HTMLAttributes,{
    class:'folio-subpage-node','data-folio-subpage':node.attrs.pageId||''
-  }),['span',{class:'folio-page-icon'},'📄'],['span',{class:'folio-page-title'},'하위 페이지 열기'],['span',{class:'folio-page-arrow'},'↗']]
+  }),['span',{class:'folio-page-icon'},'📄'],['span',{class:'folio-page-title'},'하위 페이지 열기'],['span',{class:'folio-page-note',hidden:true},'대상 페이지를 찾을 수 없음'],['button',{type:'button',class:'folio-remove-broken-link',hidden:true,'aria-label':'끊어진 페이지 링크 제거'},'링크 제거'],['span',{class:'folio-page-arrow'},'↗']]
  }
 });
 const actions=[
@@ -336,7 +336,8 @@ export async function mountFolioEditor(host,api){
  async function openEmbeddedPage(pageId){
   if(navigating||!pageId)return;
   if(!api.findPage(pageId)){
-   showAlert('이 하위 페이지를 찾지 못했어. 아래 하위 페이지 목록에서 확인해 줘.');
+   decorate();
+   updateStatus('이 카드의 대상 페이지가 없습니다. 링크만 정리할 수 있어요.');
    return
   }
   navigating=true;
@@ -536,7 +537,12 @@ export async function mountFolioEditor(host,api){
   root.querySelectorAll('[data-folio-subpage]').forEach(node=>{
    const page=api.findPage(node.dataset.folioSubpage);
    const label=node.querySelector('.folio-page-title');
-   if(label)label.textContent=page?.title||'삭제된 페이지'
+   const note=node.querySelector('.folio-page-note');
+   const remove=node.querySelector('.folio-remove-broken-link');
+   node.classList.toggle('folio-page-missing',!page);
+   if(label)label.textContent=page?.title||'연결이 끊어진 페이지';
+   if(note)note.hidden=Boolean(page);
+   if(remove)remove.hidden=Boolean(page)
   });
   root.querySelectorAll('[data-folio-image]').forEach(node=>{
    const imageId=node.dataset.folioImage;
@@ -588,13 +594,38 @@ export async function mountFolioEditor(host,api){
   editor.chain().focus().deleteRange({from:menuFrom,to:menuTo}).run();
   await action(id)
  }
+ function removeBrokenPageLink(card){
+  const pageId=card?.dataset.folioSubpage;
+  if(!pageId||api.findPage(pageId))return;
+  const cards=[...area.querySelectorAll('[data-folio-subpage]')];
+  const targetIndex=cards.indexOf(card);
+  if(targetIndex<0)return;
+  let index=0,location=null;
+  editor.state.doc.descendants((node,pos)=>{
+   if(node.type.name!=='folioSubpage')return true;
+   if(index++===targetIndex){location={node,pos};return false}
+   return true
+  });
+  if(!location||location.node.attrs.pageId!==pageId){
+   showAlert('링크 위치를 확인할 수 없어서 제거하지 않았어. 페이지를 새로고침한 뒤 다시 시도해 줘.');
+   return
+  }
+  if(!confirm('이 끊어진 페이지 링크 카드만 제거할까요? 다른 페이지나 본문 데이터는 삭제하지 않습니다.'))return;
+  editor.chain().focus().deleteRange({from:location.pos,to:location.pos+location.node.nodeSize}).run();
+  updateStatus('끊어진 링크 제거 중 · 자동 저장')
+ }
  // ProseMirror may consume clicks on selectable atom nodes before they bubble.
  // Capture the click on the stable editor root first, before node-selection handlers run.
  root.addEventListener('click',event=>{
-  const target=event.target instanceof Element?event.target.closest('[data-folio-subpage]'):null;
+  const element=event.target instanceof Element?event.target:null;
+  const target=element?.closest('[data-folio-subpage]');
   if(!target||!root.contains(target))return;
   event.preventDefault();
   event.stopPropagation();
+  if(element.closest('.folio-remove-broken-link')){
+   removeBrokenPageLink(target);
+   return
+  }
   void openEmbeddedPage(target.dataset.folioSubpage);
  },true);
  root.querySelectorAll('[data-rich]').forEach(button=>{
@@ -619,6 +650,7 @@ export async function mountFolioEditor(host,api){
   pageId:api.pageId,
   focused(){return editor.isFocused},
   onRemote:remoteChanged,
+  refreshReferences:decorate,
   flush(){clearTimeout(timer);timer=null;return save()},
   exportBackup,
   destroy(){disposed=true;clearTimeout(timer);menu.remove();editor.destroy()}
