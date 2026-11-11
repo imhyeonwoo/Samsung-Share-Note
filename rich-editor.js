@@ -6,6 +6,7 @@ import StarterKit from 'https://cdn.jsdelivr.net/npm/@tiptap/starter-kit@3.31.3/
 import { TableKit } from 'https://cdn.jsdelivr.net/npm/@tiptap/extension-table@3.31.3/+esm';
 import { TaskList, TaskItem } from 'https://cdn.jsdelivr.net/npm/@tiptap/extension-list@3.31.3/+esm';
 import { Markdown } from 'https://cdn.jsdelivr.net/npm/@tiptap/markdown@3.31.3/+esm';
+import { Placeholder } from 'https://cdn.jsdelivr.net/npm/@tiptap/extensions@3.31.3/+esm';
 
 const blankImage='data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
 const FolioImage=Node.create({
@@ -154,6 +155,7 @@ export async function mountFolioEditor(host,api){
    TaskList,TaskItem.configure({nested:true}),
    TableKit.configure({table:{resizable:false}}),
    Markdown.configure({markedOptions:{gfm:true}}),
+   Placeholder.configure({placeholder:'내용을 입력하거나 /를 눌러 서식을 선택하세요…'}),
    FolioImage,FolioSubpage
   ],
   content:current?.json||{type:'doc',content:[{type:'paragraph'}]},
