@@ -8,7 +8,13 @@ const root=resolve('.');
 const types={'.html':'text/html','.js':'text/javascript','.css':'text/css'};
 const server=createServer(async(req,res)=>{
  try{
-  const path=resolve(root,'.'+decodeURIComponent(new URL(req.url,'http://localhost').pathname));
+  const pathname=new URL(req.url,'http://localhost').pathname;
+  if(pathname==='/firebase-config.js'){
+   res.writeHead(200,{'content-type':'text/javascript'});
+   res.end('export const firebaseConfig={apiKey:"REPLACE_ME",projectId:"",authDomain:""};');
+   return
+  }
+  const path=resolve(root,'.'+decodeURIComponent(pathname));
   if(!path.startsWith(root+sep)){res.writeHead(403);res.end();return}
   const bytes=await readFile(path);
   res.writeHead(200,{'content-type':types[extname(path)]||'application/octet-stream'});
@@ -53,6 +59,26 @@ try{
  await page.locator('[data-folio-subpage="child-page"]').click();
  await page.waitForFunction(()=>window.__folioOpenedPage==='child-page');
  console.log('PASS: editor initialized; table and bold migrated; multi-paragraph selection; toolbar table insertion; nested page click');
+ // End-to-end navigation smoke with Firestore disabled only in this local test.
+ const token='a'.repeat(48);
+ await page.goto('http://127.0.0.1:'+port+'/index.html#space='+token);
+ await page.locator('.tiptap.folio-document').waitFor({timeout:20000});
+ assert.equal(await page.locator('.title-input').inputValue(),'시작 페이지','Root page should render');
+ await page.locator('[data-new-child="welcome"]').first().click();
+ await page.locator('.title-input').waitFor();
+ const childId=await page.evaluate(()=>new URLSearchParams(location.hash.slice(1)).get('page'));
+ assert.ok(childId&&childId!=='welcome','A nested page should have its own route');
+ await page.locator('.title-input').fill('하위 페이지 테스트');
+ await page.locator('.title-input').press('Tab');
+ await page.locator('.breadcrumbs [data-page="welcome"]').click();
+ await page.waitForFunction(()=>document.querySelector('.title-input')?.value==='시작 페이지');
+ await page.locator('.child-link[data-page="'+childId+'"]').click();
+ await page.waitForFunction(id=>new URLSearchParams(location.hash.slice(1)).get('page')===id,childId);
+ await page.goBack();
+ await page.waitForFunction(()=>document.querySelector('.title-input')?.value==='시작 페이지');
+ assert.equal(errors.length,0,'No JavaScript exceptions during page navigation');
+ console.log('PASS: nested page creation, top breadcrumb click, bottom child-page click, browser Back');
+
 }finally{
  await browser?.close();
  await new Promise(resolve=>server.close(resolve))
