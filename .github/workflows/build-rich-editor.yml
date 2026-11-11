@@ -7,6 +7,8 @@ on:
       - 'app.js'
       - 'index.html'
       - 'rich-editor.src.js'
+      - 'rich-editor.css'
+      - 'styles.css'
       - 'package.json'
       - 'tests/editor-smoke.html'
       - 'tests/editor-smoke.mjs'
