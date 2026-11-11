@@ -1,0 +1,78 @@
+/* Folio's unified rich-text editing surface — native text selection across all paragraphs */
+#folio-rich-host{min-height:180px}
+.folio-rich{position:relative;color:#303a32}
+.folio-rich-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:4px;position:sticky;top:60px;z-index:2;background:#ffffffec;backdrop-filter:blur(8px);padding:9px 2px;border-bottom:1px solid #edf0ea;margin-bottom:20px}
+.folio-rich-toolbar button,.folio-rich-tabletools button{border:0;background:none;border-radius:6px;padding:8px 9px;color:#68786c;font-size:12px;line-height:1.1;min-height:31px;white-space:nowrap}
+.folio-rich-toolbar button:hover,.folio-rich-tabletools button:hover{background:#edf3ec;color:#36553d}
+.folio-rich-toolbar button b,.folio-rich-toolbar button i{font-size:14px}
+.rich-sep{height:22px;width:1px;background:#e4e9e2;display:inline-block;margin:0 4px}
+.folio-rich-tabletools{display:flex;flex-wrap:wrap;gap:4px;margin:0 0 13px;padding:7px;background:#f7faf6;border-radius:8px}
+.folio-rich-tabletools[hidden]{display:none}
+.folio-rich-alert{background:#fff6de;border:1px solid #e7d4a7;border-radius:10px;padding:13px 16px;margin:15px 0;color:#80682b;font-size:12px;line-height:1.8}
+.folio-rich-alert[hidden]{display:none}
+.folio-rich-alert p{margin:0 0 8px;line-height:1.8}
+.folio-rich-alert button{border:1px solid #dcca9e;background:white;color:#765b1c;font-size:11px;border-radius:6px;padding:8px 10px;margin:4px 5px 0 0}
+.folio-rich-content{min-height:280px}
+.tiptap.folio-document{font:400 14px/1.92 'DM Sans','Noto Sans KR',sans-serif;color:#343e36;min-height:275px;padding:5px 1px 40px;white-space:pre-wrap;overflow-wrap:anywhere;outline:none}
+.tiptap.folio-document:focus{outline:none}
+.tiptap.folio-document > :first-child{margin-top:0}
+.tiptap.folio-document p{margin:0 0 13px;line-height:1.92;min-height:1em}
+.tiptap.folio-document h1{font-size:30px;font-weight:800;letter-spacing:-.8px;line-height:1.45;margin:30px 0 14px}
+.tiptap.folio-document h2{font-size:23px;font-weight:760;letter-spacing:-.6px;line-height:1.5;margin:29px 0 12px}
+.tiptap.folio-document h3{font-size:18px;font-weight:750;line-height:1.6;margin:23px 0 11px}
+.tiptap.folio-document strong{font-weight:800}
+.tiptap.folio-document em{font-style:italic}
+.tiptap.folio-document a{color:#37684a;text-decoration:underline;text-underline-offset:2px}
+.tiptap.folio-document ul,.tiptap.folio-document ol{padding-left:27px;margin:8px 0 16px}
+.tiptap.folio-document li{padding-left:3px;margin:3px 0}
+.tiptap.folio-document li p{margin-bottom:3px}
+.tiptap.folio-document blockquote{border-left:3px solid #a7c0ae;color:#647867;margin:17px 0;padding:6px 0 6px 18px}
+.tiptap.folio-document blockquote p{margin:0}
+.tiptap.folio-document pre{background:#f3f5f1;border:1px solid #e5ebe2;border-radius:8px;padding:14px 17px;white-space:pre-wrap;overflow-x:auto;font:12px/1.8 ui-monospace,SFMono-Regular,Consolas,monospace;margin:12px 0 20px}
+.tiptap.folio-document code{font:12px ui-monospace,SFMono-Regular,Consolas,monospace;background:#f2f5f0;border-radius:4px;padding:2px 5px}
+.tiptap.folio-document pre code{background:transparent;padding:0}
+.tiptap.folio-document hr{border:0;border-top:1px solid #dee7dc;margin:27px 0}
+.tiptap.folio-document ul[data-type="taskList"]{list-style:none;padding:0;margin:12px 0 20px}
+.tiptap.folio-document ul[data-type="taskList"] li{display:flex;gap:10px;align-items:flex-start;padding:0;margin:8px 0}
+.tiptap.folio-document ul[data-type="taskList"] li>label{margin-top:4px;flex-shrink:0}
+.tiptap.folio-document ul[data-type="taskList"] li>label input{accent-color:#4c7556}
+.tiptap.folio-document ul[data-type="taskList"] li>div{flex:1;min-width:0}
+.tiptap.folio-document ul[data-type="taskList"] li[data-checked="true"]>div{color:#9ea99f;text-decoration:line-through}
+.tiptap.folio-document .tableWrapper{overflow-x:auto;margin:18px 0}
+.tiptap.folio-document table{border-collapse:collapse;table-layout:fixed;width:100%;max-width:100%;margin:0 0 20px}
+.tiptap.folio-document td,.tiptap.folio-document th{border:1px solid #dfe6dc;min-width:70px;padding:10px 11px;position:relative;vertical-align:top;box-sizing:border-box;font-size:12.5px;line-height:1.7}
+.tiptap.folio-document th{background:#f4f7f2;font-weight:800;text-align:left}
+.tiptap.folio-document td p,.tiptap.folio-document th p{margin:0}
+.tiptap.folio-document .selectedCell:after{background:#b4ccbb61;content:"";position:absolute;inset:0;pointer-events:none}
+.tiptap.folio-document figure.folio-media{margin:18px 0 23px;padding:6px 0}
+.tiptap.folio-document figure.folio-media img{display:block;max-width:100%;max-height:680px;height:auto;border:1px solid #edf1eb;border-radius:8px;background:#fafcfa;object-fit:contain}
+.tiptap.folio-document figure.folio-media figcaption{font-size:11px;color:#95a197;margin-top:8px}
+.tiptap.folio-document .folio-subpage-node{border:1px solid #dce8dc;background:#f7faf6;border-radius:8px;padding:14px 17px;margin:11px 0;display:flex;gap:10px;align-items:center;cursor:pointer}
+.tiptap.folio-document .folio-subpage-node:hover{background:#eaf3e9}
+.folio-page-title{font-size:13px;font-weight:750;color:#4c6853;flex:1}
+.folio-page-icon{font-size:19px}.folio-page-arrow{color:#90a393;font-size:14px}
+.tiptap.folio-document .ProseMirror-selectednode{outline:2px solid #a2c5a9;border-radius:7px}
+.tiptap.folio-document p.is-editor-empty:first-child::before{content:'내용을 입력하거나 /를 눌러 서식을 선택하세요…';color:#aeb9ae;float:left;height:0;pointer-events:none}
+.folio-rich-bottom{padding:14px 0 8px;border-top:1px solid #edf0ea;display:flex;align-items:center;gap:11px;flex-wrap:wrap;color:#9ba79a;font-size:11px}
+.folio-rich-bottom [data-rich-status]{flex:1;min-width:170px}
+.folio-rich-bottom button{border:1px solid #e5ece3;border-radius:7px;background:#f8faf7;color:#657e6a;font-size:11px;padding:9px 12px}
+.folio-rich-bottom button:hover{background:#ecf2eb}
+.folio-rich-slash{position:fixed;z-index:60;display:none;min-width:242px;max-width:min(320px,95vw);max-height:285px;overflow-y:auto;background:white;border:1px solid #e4ebe1;border-radius:11px;box-shadow:0 12px 38px #2035232a;padding:7px}
+.folio-slash-label{font-size:10px;color:#9cab9c;font-weight:800;padding:9px 9px 6px}
+.folio-rich-slash button{display:flex;align-items:center;gap:11px;border:0;border-radius:6px;width:100%;background:transparent;padding:9px 10px;text-align:left;font-size:12px;color:#456049}
+.folio-rich-slash button.active,.folio-rich-slash button:hover{background:#edf4eb}
+.folio-action-icon{display:grid;place-items:center;width:31px;height:31px;border:1px solid #e1e9df;background:#f8faf8;border-radius:7px;font-weight:750}
+.folio-rich-slash b{display:block;font-size:12px}.folio-rich-slash small{display:block;color:#92a092;font-size:10px;margin-top:2px}
+.rich-editor-footer{border:0;margin:6px 0 0;padding:2px 0;color:#9da99e;font-size:11px}
+.rich-load-error{background:#fff5e9;border:1px solid #eed5b3;border-radius:10px;padding:24px;color:#7e6446;line-height:1.9}
+.rich-load-error p{font-size:12px}.rich-load-error button{border:1px solid #dac9a8;background:white;padding:9px 13px;border-radius:6px}
+@media(max-width:650px){
+ .folio-rich-toolbar{top:54px;margin-bottom:13px;gap:2px}
+ .folio-rich-toolbar button{font-size:11px;min-height:32px;padding:7px 8px}
+ .tiptap.folio-document{font-size:13px}
+ .tiptap.folio-document h1{font-size:25px}
+ .tiptap.folio-document h2{font-size:20px}
+ .tiptap.folio-document h3{font-size:17px}
+ .tiptap.folio-document td,.tiptap.folio-document th{font-size:11px;padding:7px}
+ .folio-rich-slash{max-height:250px}
+}
