@@ -56,8 +56,13 @@ try{
  // Add a table through the main toolbar.
  await page.locator('[data-rich="table"]').click();
  assert.ok(await content.locator('table').count()>=2,'Toolbar adds a table');
- await page.locator('[data-folio-subpage="child-page"]').click();
+ // Regression: another save is in flight when a subpage card is clicked.
+ // The old card handler simply refused to navigate while 'saving' was true.
+ await page.evaluate(()=>{void window.__folioHandle.flush()});
+ await page.waitForFunction(()=>window.__folioWriting===true);
+ await page.locator('[data-folio-subpage="child-page"] .folio-page-title').click();
  await page.waitForFunction(()=>window.__folioOpenedPage==='child-page');
+ assert.equal(await page.evaluate(()=>window.__folioWrites.length),1,'The active document write must finish before opening a child page');
  console.log('PASS: editor initialized; table and bold migrated; multi-paragraph selection; toolbar table insertion; nested page click');
  // End-to-end navigation smoke with Firestore disabled only in this local test.
  const token='a'.repeat(48);
@@ -78,6 +83,36 @@ try{
  await page.waitForFunction(()=>document.querySelector('.title-input')?.value==='시작 페이지');
  assert.equal(errors.length,0,'No JavaScript exceptions during page navigation');
  console.log('PASS: nested page creation, top breadcrumb click, bottom child-page click, browser Back');
+
+ // Real Folio page: a legacy embedded child-page card must navigate when clicking
+ // the card itself, not only the separate list of child pages below it.
+ const seededToken='b'.repeat(48);
+ const page2=await browser.newPage({viewport:{width:1200,height:900}});
+ const page2Errors=[];
+ page2.on('pageerror',err=>page2Errors.push(err.message));
+ await page2.addInitScript(token=>{
+  if(!location.pathname.endsWith('/index.html'))return;
+  const time='2026-11-11T03:00:00.000Z';
+  const pages=[
+   {id:'welcome',title:'삼성물산 스터디',icon:'⚡',parentId:null,order:0,createdAt:time,updatedAt:time},
+   {id:'seed-child',title:'삼성물산 PT면접 대비',icon:'📄',parentId:'welcome',order:1024,createdAt:time,updatedAt:time}
+  ];
+  const blocks=[
+   {id:'embedded-child',pageId:'welcome',type:'text',text:'[[folio-page:seed-child]]',checked:false,order:1024,createdAt:time,updatedAt:time}
+  ];
+  localStorage.setItem('folio-workspace-v2-'+token,JSON.stringify({pages,blocks,images:[]}));
+ },seededToken);
+ await page2.goto('http://127.0.0.1:'+port+'/index.html#space='+seededToken);
+ await page2.locator('[data-folio-subpage="seed-child"]').waitFor({timeout:20000});
+ await page2.locator('[data-folio-subpage="seed-child"] .folio-page-title').click();
+ await page2.waitForFunction(()=>new URLSearchParams(location.hash.slice(1)).get('page')==='seed-child');
+ assert.equal(await page2.locator('.title-input').inputValue(),'삼성물산 PT면접 대비');
+ await page2.goBack();
+ await page2.waitForFunction(()=>document.querySelector('.title-input')?.value==='삼성물산 스터디');
+ assert.equal(page2Errors.length,0,'No JS errors while clicking embedded child page: '+page2Errors.join('; '));
+ await page2.close();
+ console.log('PASS: real Folio embedded child card opens the child page and browser Back returns to parent');
+
 
 }finally{
  await browser?.close();
