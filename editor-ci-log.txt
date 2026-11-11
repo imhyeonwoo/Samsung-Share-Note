@@ -1,6 +1,6 @@
 == install ==
 
-added 49 packages in 4s
+added 49 packages in 5s
 == build ==
 
 > folio-share-notes@2.1.0 build:editor
@@ -9,7 +9,7 @@ added 49 packages in 4s
 
   rich-editor.bundle.js  498.6kb
 
-⚡ Done in 46ms
+⚡ Done in 54ms
 == browser ==
 No VM guests are running outdated hypervisor (qemu) binaries on this host.
 Downloading Chromium 141.0.7390.37 (playwright build v1194) from https://cdn.playwright.dev/dbazure/download/playwright/builds/chromium/1194/chromium-linux.zip
@@ -57,3 +57,4 @@ Chromium Headless Shell 141.0.7390.37 (playwright build v1194) downloaded to /ho
 > node tests/editor-smoke.mjs
 
 PASS: editor initialized; table and bold migrated; multi-paragraph selection; toolbar table insertion; nested page click
+PASS: nested page creation, top breadcrumb click, bottom child-page click, browser Back
