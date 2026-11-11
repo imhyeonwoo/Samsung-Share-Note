@@ -49,4 +49,24 @@ jobs:
       - name: Install headless Chromium
         run: npx playwright install --with-deps chromium
       - name: Test editor initialization and page interaction
-        run: npm run test:editor
+        id: smoke
+        run: npm run test:editor 2>&1 | tee /tmp/folio-editor-smoke.log
+      - name: Save smoke result for verification
+        if: always()
+        env:
+          SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
+          GIT_SOURCE_SHA: ${{ github.sha }}
+        run: |
+          node -e 'const fs=require("fs");fs.writeFileSync("editor-ci-result.json",JSON.stringify({outcome:process.env.SMOKE_OUTCOME,source:process.env.GIT_SOURCE_SHA,checkedAt:new Date().toISOString()},null,2)+"\\n")'
+          if [ -f /tmp/folio-editor-smoke.log ]; then
+            tail -n 80 /tmp/folio-editor-smoke.log > editor-ci-log.txt
+          else
+            echo "No browser-test log (prior step may have failed)." > editor-ci-log.txt
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add editor-ci-result.json editor-ci-log.txt
+          if ! git diff --cached --quiet; then
+            git commit -m "Record Folio browser smoke result"
+            git push origin HEAD:main
+          fi
