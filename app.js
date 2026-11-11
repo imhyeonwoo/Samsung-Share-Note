@@ -458,6 +458,7 @@ function render(force=false){
 }
 function showPage(id){
  if(!pageById(id))return;
+ if(state.screen==='page'&&state.current===id){state.sidebarOpen=false;return}
  disposeRich();
  flushPendingWrites();
  if(state.screen!=='page'||state.current!==id)saveOriginRoute();
@@ -944,8 +945,17 @@ async function copyDocument(){
  }
 }
 
+// Stable click delegation: rerenders and live Firestore updates must never detach navigation.
+app.addEventListener('click',event=>{
+ const node=event.target.closest('[data-page]');
+ if(!node||!app.contains(node))return;
+ const pageId=node.dataset.page;
+ if(!pageId)return;
+ event.preventDefault();
+ event.stopPropagation();
+ showPage(pageId);
+},true);
 function bind(){
- app.querySelectorAll('[data-page]').forEach(x=>x.onclick=()=>showPage(x.dataset.page));
  bindImageDrop();
  const blockArea=app.querySelector('.blocks');if(blockArea)blockArea.addEventListener('paste',ev=>{handleImagePaste(ev);if(!ev.defaultPrevented)handleTextPaste(ev)});
  app.querySelectorAll('[data-new-child]').forEach(x=>x.onclick=()=>createPage(x.dataset.newChild||null));
@@ -965,7 +975,7 @@ function bind(){
   case 'move-page':moveCurrentPage();break;
   case 'delete-page':deleteCurrentPage();break;
  }});
- const q=document.getElementById('search-field');if(q)q.oninput=ev=>{state.search=ev.target.value.toLowerCase();const matches=state.pages.filter(p=>!state.search||p.title.toLowerCase().includes(state.search)||state.blocks.some(b=>b.pageId===p.id&&b.text.toLowerCase().includes(state.search)));document.getElementById('results').innerHTML=searchMatches(matches);document.querySelectorAll('#results [data-page]').forEach(x=>x.onclick=()=>showPage(x.dataset.page))};
+ const q=document.getElementById('search-field');if(q)q.oninput=ev=>{state.search=ev.target.value.toLowerCase();const matches=state.pages.filter(p=>!state.search||p.title.toLowerCase().includes(state.search)||state.blocks.some(b=>b.pageId===p.id&&b.text.toLowerCase().includes(state.search)));document.getElementById('results').innerHTML=searchMatches(matches);void 0};
  const title=app.querySelector('[data-title]');if(title){title.oninput=ev=>{const p=pageById(ev.target.dataset.title);if(p)debounceSave('pages',{...p,title:ev.target.value||'',updatedAt:now()})};title.onblur=()=>setTimeout(()=>render(),100);title.onkeydown=ev=>{if(ev.key==='Enter'){ev.preventDefault();ev.target.blur()}}}
  app.querySelectorAll('[data-add-after]').forEach(x=>x.onclick=()=>createBlock(x.dataset.addAfter));
  app.querySelectorAll('[data-block-menu]').forEach(x=>x.onclick=()=>blockMenu(x.dataset.blockMenu));
