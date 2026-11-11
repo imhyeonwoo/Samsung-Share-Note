@@ -341,7 +341,9 @@ export async function mountFolioEditor(host,api){
  }
  async function copyAll(){
   try{
-   const text=editor.getMarkdown?.()||editor.getText({blockSeparator:'\n\n'});
+   let text='';
+   try{text=editor.getMarkdown?.()||''}catch{}
+   if(!text)text=editor.getText({blockSeparator:'\n\n'});
    await navigator.clipboard.writeText(text);
    updateStatus('문서를 복사했어')
   }catch(err){showAlert('복사 실패: '+err.message)}
