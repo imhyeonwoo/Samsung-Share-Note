@@ -109,6 +109,27 @@ try{
   'Saved table cells must contain durable colwidth attributes: '+JSON.stringify(savedWidths));
  console.log('PASS: drag-to-resize table columns + whole table, persisted as colwidth values');
 
+ // A deleted subpage's reference may remain in a migrated rich document.
+ // Show a non-navigable broken link and remove only that specific node when requested.
+ const missingCard=page.locator('[data-folio-subpage="missing-page"]');
+ assert.ok(await missingCard.count()===1,'Stale reference is visible');
+ assert.ok(await missingCard.getAttribute('class').then(c=>c.includes('folio-page-missing')),'Missing page is clearly labelled');
+ assert.equal(await missingCard.locator('.folio-page-title').innerText(),'연결이 끊어진 페이지');
+ const goodCard=page.locator('[data-folio-subpage="child-page"]');
+ page.once('dialog',dialog=>dialog.accept());
+ await missingCard.locator('.folio-remove-broken-link').click();
+ await page.waitForFunction(()=>document.querySelectorAll('[data-folio-subpage="missing-page"]').length===0);
+ assert.equal(await goodCard.count(),1,'Removing broken link must preserve valid child page');
+ await page.evaluate(()=>window.__folioHandle.flush());
+ await page.waitForFunction(()=>window.__folioWrites.length>=3);
+ const lastSaved=await page.evaluate(()=>window.__folioWrites.at(-1));
+ assert.ok(lastSaved.content.some(n=>n.type==='folioSubpage'&&n.attrs.pageId==='child-page'),
+  'Valid child page remains stored');
+ assert.ok(!lastSaved.content.some(n=>n.type==='folioSubpage'&&n.attrs.pageId==='missing-page'),
+  'Only broken reference was deleted from saved rich document');
+ console.log('PASS: missing page reference is labelled and removable without altering valid links');
+
+
  // End-to-end navigation smoke with Firestore disabled only in this local test.
  const token='a'.repeat(48);
  await page.goto('http://127.0.0.1:'+port+'/index.html#space='+token);
@@ -143,12 +164,15 @@ try{
    {id:'seed-child',title:'삼성물산 PT면접 대비',icon:'📄',parentId:'welcome',order:1024,createdAt:time,updatedAt:time}
   ];
   const blocks=[
-   {id:'embedded-child',pageId:'welcome',type:'text',text:'[[folio-page:seed-child]]',checked:false,order:1024,createdAt:time,updatedAt:time}
+   {id:'embedded-child',pageId:'welcome',type:'text',text:'[[folio-page:seed-child]]',checked:false,order:1024,createdAt:time,updatedAt:time},
+   {id:'embedded-orphan',pageId:'welcome',type:'text',text:'[[folio-page:missing-child]]',checked:false,order:2048,createdAt:time,updatedAt:time}
   ];
   localStorage.setItem('folio-workspace-v2-'+token,JSON.stringify({pages,blocks,images:[]}));
  },seededToken);
  await page2.goto('http://127.0.0.1:'+port+'/index.html#space='+seededToken);
  await page2.locator('[data-folio-subpage="seed-child"]').waitFor({timeout:20000});
+ assert.ok(await page2.locator('[data-folio-subpage="missing-child"].folio-page-missing').count()===1,
+   'Real Folio shows missing page as a broken link');
  await page2.locator('[data-folio-subpage="seed-child"] .folio-page-title').click();
  await page2.waitForFunction(()=>new URLSearchParams(location.hash.slice(1)).get('page')==='seed-child');
  assert.equal(await page2.locator('.title-input').inputValue(),'삼성물산 PT면접 대비');
