@@ -4,6 +4,15 @@ GitHub Pages + Firebase로 만든 노션형 공동 편집 워크스페이스입�
 
 배포 예정 주소: https://imhyeonwoo.github.io/Samsung-Share-Note/
 
+## 2026-11-11 편집기 안정성 수정
+
+- `Adding different instances of a keyed plugin (plugin$)` 오류: Tiptap/ProseMirror 모듈을 개별 CDN URL로 불러오던 구조를 **단일 로컬 번들**로 교체
+- 상단 경로와 하위 페이지 링크 클릭이 간헐적으로 안 되는 문제: 앱 루트에서 **고정된 페이지 클릭 이벤트**를 처리하도록 변경
+- CI 브라우저 테스트: **편집기 시작, 마크다운 표·굵게 변환, 여러 문단 텍스트 선택, 표 삽입, 하위 페이지 생성, 상단 경로/하단 하위 페이지 클릭, 브라우저 뒤로 가기** 자동 확인
+- 소스 빌드: `npm run build:editor` → `rich-editor.bundle.js`; 브라우저 검사: `npm run test:editor`
+- 원본 백업 브랜치: `backup-before-editor-fix-20261111`
+- Firebase 데이터베이스 및 Firestore 규칙은 변경하지 않음
+
 ## 편집기 2.0: 통합 문서 편집
 
 기존 Folio의 분리된 textarea 입력창 대신 **Tiptap 3 기반 통합 리치 텍스트 편집기**가 기본으로 표시됩니다.
@@ -21,7 +30,7 @@ GitHub Pages + Firebase로 만든 노션형 공동 편집 워크스페이스입�
 
 **비상 복구:** 브라우저에 미저장 초안이 감지되면 복원 안내를 띄웁니다. 공동 편집 충돌로 저장이 중단되면 반드시 백업을 먼저 내려받으세요. 한 페이지 안에서 실제 Google Docs처럼 충돌 없이 동시 타이핑하는 기능은 제공하지 않습니다.
 
-**실행 환경:** 기존처럼 GitHub Pages + Firebase만 사용하지만 Tiptap을 CDN에서 로드하므로 인터넷 연결이 필요합니다. CDN이나 라이브러리 오류 발생 시 기존 자료는 서버에서 삭제되지 않으며 오류 안내가 표시됩니다.
+**실행 환경:** GitHub Pages + Firebase는 그대로 유지합니다. Tiptap과 ProseMirror 의존성은 GitHub Actions에서 하나의 `rich-editor.bundle.js`로 묶어 배포합니다. CDN에서 개별 모듈을 중복 로드하는 방식은 더 이상 사용하지 않습니다. 기존 데이터는 유지되며 새 번들은 Chromium 자동 테스트를 통과한 상태에서만 사이트에 연결합니다.
 
 ## 기능
 
