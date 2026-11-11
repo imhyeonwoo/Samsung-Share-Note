@@ -170,3 +170,64 @@
  flex-shrink:0;
 }
 .tiptap.folio-document .folio-remove-broken-link:hover{background:#f9eddd}
+
+
+/* Inline and display LaTeX formulas rendered by the bundled KaTeX engine. */
+.tiptap.folio-document .folio-math-node{
+ user-select:none;
+ -webkit-user-select:none;
+ cursor:pointer;
+ border-radius:6px;
+ transition:background .12s,box-shadow .12s;
+}
+.tiptap.folio-document .folio-math-inline{
+ display:inline-block;
+ padding:0 3px;
+ max-width:100%;
+ vertical-align:baseline;
+}
+.tiptap.folio-document .folio-math-block{
+ display:block;
+ text-align:center;
+ max-width:100%;
+ overflow-x:auto;
+ padding:16px 12px;
+ margin:16px 0 22px;
+ background:#fafbf8;
+ border:1px solid #e9ede6;
+}
+.tiptap.folio-document .folio-math-node:hover{background:#eaf2e9;box-shadow:0 0 0 1px #b5ceb5}
+.tiptap.folio-document .folio-math-node:focus-visible{outline:2px solid #8eb597;outline-offset:2px}
+.tiptap.folio-document .folio-math-block .katex-display{margin:0}
+.folio-math-dialog{
+ width:min(640px,calc(100vw - 32px));
+ max-height:min(88vh,740px);
+ border:1px solid #dae6d8;
+ border-radius:14px;
+ padding:0;
+ box-shadow:0 30px 100px #1c2b2038;
+ color:#3f5242;
+ background:#fff;
+}
+.folio-math-dialog::backdrop{background:#1b2b245c}
+.folio-math-panel{padding:24px 26px 23px;display:flex;flex-direction:column;gap:12px}
+.folio-math-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.folio-math-head h2{font-size:19px;margin:0;font-weight:750}
+.folio-math-close{font-size:24px;border:0;background:transparent;color:#849486;padding:2px 7px}
+.folio-math-panel label,.folio-math-preview-label{font-size:11px;color:#788879;font-weight:750}
+.folio-math-panel textarea{
+ box-sizing:border-box;width:100%;min-height:98px;max-height:230px;resize:vertical;
+ background:#f9fbf8;color:#344a39;border:1px solid #d6e4d4;
+ border-radius:9px;padding:13px 15px;font:13px/1.7 ui-monospace,SFMono-Regular,Consolas,monospace;
+}
+.folio-math-preview{
+ min-height:86px;display:flex;justify-content:center;align-items:center;
+ padding:18px 12px;text-align:center;overflow-x:auto;
+ border:1px solid #e3eae1;background:#fbfcfa;border-radius:9px;
+}
+.folio-math-preview .katex-display{margin:0}
+.folio-math-hint{margin:0;color:#90a091;font-size:11px;line-height:1.65}
+.folio-math-buttons{display:flex;gap:10px;justify-content:flex-end}
+.folio-math-buttons button{background:#fff;border:1px solid #dfe8de;padding:10px 16px;font-size:12px;color:#657866;border-radius:8px}
+.folio-math-buttons .folio-math-apply{background:#426b4d;border-color:#426b4d;color:white;font-weight:750}
+@media(max-width:650px){.folio-math-panel{padding:19px 16px}.folio-math-preview{min-height:75px}}
