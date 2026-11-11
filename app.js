@@ -5,7 +5,7 @@ const modal=document.getElementById('modal');
 const toast=document.getElementById('toast');
 const configured=Boolean(firebaseConfig?.apiKey && firebaseConfig?.projectId && firebaseConfig?.authDomain && firebaseConfig.apiKey!=='REPLACE_ME');
 const blockTypes=[['text','텍스트'],['h1','제목 1'],['h2','제목 2'],['h3','제목 3'],['bullet','글머리 기호'],['number','번호 목록'],['todo','체크리스트'],['quote','인용'],['code','코드'],['divider','구분선'],['page','하위 페이지'],['image','이미지']];
-const state={pages:[],blocks:[],images:new Map(),imageLoading:new Set(),current:null,screen:'page',search:'',expanded:new Set(),mode:configured?'cloud':'demo',ready:false,editing:null,menu:null,sidebarOpen:false,seeding:false,creatingInline:false,listen:[],pending:new Map(),drafts:new Map(),saveError:false,error:null};
+const state={pages:[],blocks:[],images:new Map(),imageLoading:new Set(),current:null,screen:'page',search:'',expanded:new Set(),mode:configured?'cloud':'demo',ready:false,editing:null,menu:null,sidebarOpen:false,seeding:false,creatingInline:false,listen:[],pending:new Map(),drafts:new Map(),saveError:false,blocksLoaded:false,error:null};
 let fb={};
 function uuid(){return globalThis.crypto?.randomUUID?.()||'id'+Date.now().toString(36)+Math.random().toString(36).slice(2)}
 function randomSpace(){const b=new Uint8Array(24);crypto.getRandomValues(b);return Array.from(b,x=>x.toString(16).padStart(2,'0')).join('')}
@@ -39,6 +39,7 @@ function saveOriginRoute(){
  if(state.ready&&currentHref()!==routeHref())setRoute(true);
 }
 function restoreRoute(){
+ disposeRich();
  flushPendingWrites();
  const route=readRoute();
  if(route.space!==space){location.reload();return}
@@ -54,6 +55,7 @@ window.addEventListener('popstate',restoreRoute);
 window.addEventListener('hashchange',restoreRoute);
 function navigateView(view){
  if(state.screen===view)return;
+ disposeRich();
  flushPendingWrites();
  saveOriginRoute();
  state.screen=view;state.sidebarOpen=false;
@@ -65,6 +67,118 @@ function notice(msg){toast.textContent=msg;toast.classList.add('show');clearTime
 function stamp(iso){return iso?new Date(iso).toLocaleDateString('ko-KR',{month:'short',day:'numeric'}):''}
 const pageById=id=>state.pages.find(p=>p.id===id);
 const blockById=id=>state.blocks.find(b=>b.id===id);
+const RICH_TAG='folio-rich-v1';
+let richController=null,richMountSerial=0;
+const richBase=id=>'__folio_rich_'+id+'_';
+const richMetaId=id=>richBase(id)+'meta';
+const richPartId=(id,i)=>richBase(id)+'part_'+i;
+function isRichRecord(block){return block?.id?.startsWith('__folio_rich_')&&
+ (block.id.includes('_meta')||block.id.includes('_part_'))}
+function rawLegacyBlocks(id){return state.blocks.filter(b=>b.pageId===id&&!isRichRecord(b)).sort(sortByOrder)}
+function readRichDocument(id){
+ const metaRecord=state.blocks.find(x=>x.id===richMetaId(id));
+ if(!metaRecord)return null;
+ let meta;try{meta=JSON.parse(metaRecord.text)}catch{throw Error('문서 저장 정보가 올바르지 않습니다. 기존 내용은 보존되어 있습니다.')}
+ if(meta?.tag!==RICH_TAG||!Number.isInteger(meta.count)||meta.count<1||meta.count>50)
+  throw Error('문서 저장 버전이 올바르지 않습니다.');
+ let jsonText='';
+ for(let i=0;i<meta.count;i++){
+  const part=state.blocks.find(x=>x.id===richPartId(id,i));
+  if(!part||!part.text.startsWith(meta.revision+'\n'))throw Error('문서 일부가 아직 동기화되지 않았습니다. 새로고침해 주세요.');
+  jsonText+=part.text.slice(meta.revision.length+1)
+ }
+ let json;try{json=JSON.parse(jsonText)}catch{throw Error('문서를 해석할 수 없습니다. 기존 내용은 보존되어 있습니다.')}
+ return {revision:meta.revision,json}
+}
+function richRecord(id,text){
+ return {id,pageId:state.current,type:'text',text,checked:false,order:-999999,
+         createdAt:now(),updatedAt:now()}
+}
+function richConflict(){const err=new Error('다른 사용자의 변경이 먼저 저장되었습니다.');err.code='conflict';return err}
+async function writeRichDocument(pageId,json,expectedRevision){
+ const serial=JSON.stringify(json);
+ if(serial.length>480000)throw Error('한 페이지가 너무 큽니다. 긴 문서를 여러 하위 페이지로 나누어 주세요.');
+ const chunks=serial.match(/[\s\S]{1,14000}/g)||['{}'];
+ const revision=uuid();
+ const metaId=richMetaId(pageId),newMeta={tag:RICH_TAG,revision,count:chunks.length,updatedAt:now()};
+ const records=[{...richRecord(metaId,JSON.stringify(newMeta)),pageId},
+ ...chunks.map((txt,i)=>({...richRecord(richPartId(pageId,i),revision+'\n'+txt),pageId}))];
+ if(state.mode==='demo'){
+  const old=readRichDocument(pageId);
+  if((old?.revision||null)!==(expectedRevision||null))throw richConflict();
+  for(const item of records)localUpdate('blocks',item);
+  state.blocks=state.blocks.filter(x=>!x.id.startsWith(richBase(pageId)+'part_')||
+   records.some(y=>y.id===x.id));
+  saveDemo();return revision
+ }
+ await fb.runTransaction(fb.db,async tx=>{
+  const metaRef=fb.doc(blocksColl(),metaId);
+  const previous=await tx.get(metaRef);
+  let old;
+  try{old=previous.exists()?JSON.parse(previous.data().text):null}catch{throw Error('기존 문서의 버전 정보를 읽지 못했습니다.')}
+  if((old?.revision||null)!==(expectedRevision||null))throw richConflict();
+  for(const item of records)tx.set(fb.doc(blocksColl(),item.id),item);
+  for(let i=chunks.length;i<(old?.count||0);i++)tx.delete(fb.doc(blocksColl(),richPartId(pageId,i)));
+ });
+ return revision
+}
+async function addRichImage(file){
+ const dataUrl=await compressImage(file);
+ const asset={id:uuid(),pageId:state.current,name:(file.name||'첨부 이미지').slice(0,120),
+   dataUrl,bytes:imageByteSize(dataUrl),createdAt:now()};
+ if(state.mode==='demo'){state.images.set(asset.id,asset);saveDemo()}
+ else await fb.setDoc(fb.doc(imageColl(),asset.id),asset);
+ state.images.set(asset.id,asset);return asset.id
+}
+async function getRichImage(id){
+ if(state.images.has(id))return state.images.get(id);
+ if(state.mode==='demo')return null;
+ const snap=await fb.getDoc(fb.doc(imageColl(),id));
+ if(!snap.exists())return null;
+ const asset=snap.data();state.images.set(id,asset);return asset
+}
+async function createRichSubpage(){
+ const parentId=state.current;
+ if(!pageById(parentId))throw Error('상위 페이지가 존재하지 않습니다.');
+ const page={id:uuid(),title:'제목 없음',icon:'📄',parentId,order:Date.now(),
+ createdAt:now(),updatedAt:now()};
+ await put('pages',page);localUpdate('pages',page);
+ state.expanded.add(parentId);return page
+}
+function disposeRich(){
+ richMountSerial++;
+ if(richController){const current=richController;richController=null;void current.flush?.();current.destroy()}
+}
+async function ensureRich(){
+ const host=app.querySelector('#folio-rich-host');
+ if(!host||!state.blocksLoaded||!state.current||richController?.pageId===state.current)return;
+ const pageId=state.current,serial=++richMountSerial;
+ try{
+  const module=await import('./rich-editor.js?v=20261111-rich-v1');
+  if(serial!==richMountSerial||!host.isConnected||state.current!==pageId)return;
+  const controller=await module.mountFolioEditor(host,{
+   pageId,workspace:space,
+   legacyBlocks:()=>rawLegacyBlocks(pageId),
+   readRich:()=>readRichDocument(pageId),
+   writeRich: (doc,rev)=>writeRichDocument(pageId,doc,rev),
+   createSubpage:createRichSubpage,
+   openPage:showPage,
+   findPage:pageById,
+   addImage:addRichImage,
+   loadImage:getRichImage
+  });
+  if(serial!==richMountSerial||!host.isConnected){controller.destroy();return}
+  richController=controller
+ }catch(err){
+  if(serial!==richMountSerial)return;
+  console.error('Rich editor error',err);
+  host.innerHTML='<div class="rich-load-error"><strong>편집기를 불러오지 못했습니다.</strong><p>'+
+   e(err.message||err)+'</p><button type="button" data-rich-retry>다시 시도</button>'+
+   '<p>기존 블록 자료는 지우지 않고 보존되어 있어요.</p></div>';
+  host.querySelector('[data-rich-retry]')?.addEventListener('click',()=>{host.replaceChildren();void ensureRich()})
+ }
+}
+
 // Page links are encoded as text blocks, so the existing published Firestore rules remain compatible.
 function pageRefId(text){const match=String(text||'').match(/^\[\[folio-page:([a-zA-Z0-9-]+)\]\]$/);return match?.[1]||null}
 function pageLinkText(id){return '[[folio-page:'+id+']]' }
@@ -107,7 +221,7 @@ function refreshImages(){
  }
 }
 function sortByOrder(a,b){return (a.order??0)-(b.order??0) || (a.createdAt||'').localeCompare(b.createdAt||'')}
-function pageBlocks(pid){return state.blocks.filter(b=>b.pageId===pid).sort(sortByOrder)}
+function pageBlocks(pid){return state.blocks.filter(b=>b.pageId===pid&&!isRichRecord(b)).sort(sortByOrder)}
 function children(pid){return state.pages.filter(p=>(p.parentId||null)===(pid||null)).sort(sortByOrder)}
 function saveDemo(){try{localStorage.setItem(demoKey,JSON.stringify({pages:state.pages,blocks:state.blocks,images:[...state.images]}))}catch{notice('저장 공간이 부족하거나 차단됐습니다.')}}
 function seedPage(){const timestamp=now();return {id:'welcome',title:'시작 페이지',icon:'🌿',parentId:null,order:0,createdAt:timestamp,updatedAt:timestamp}}
@@ -117,7 +231,7 @@ function seedBlocks(){const timestamp=now();return [
 {id:'todo1',pageId:'welcome',type:'todo',text:'새 페이지 만들어 보기',checked:false,order:3072,createdAt:timestamp,updatedAt:timestamp},
 {id:'todo2',pageId:'welcome',type:'todo',text:'공유 링크 복사하기',checked:false,order:4096,createdAt:timestamp,updatedAt:timestamp}
 ]}
-function initDemo(){try{const saved=JSON.parse(localStorage.getItem(demoKey)||'null');if(saved&&Array.isArray(saved.pages)&&Array.isArray(saved.blocks)){state.pages=saved.pages;state.blocks=saved.blocks;state.images=new Map(Array.isArray(saved.images)?saved.images:[])}else{state.pages=[seedPage()];state.blocks=seedBlocks();saveDemo()}}catch{state.pages=[seedPage()];state.blocks=seedBlocks()}state.ready=true;const route=readRoute();state.screen=route.screen;state.current=(route.page&&pageById(route.page)?route.page:null)||children(null)[0]?.id||state.pages[0]?.id||null;render()}
+function initDemo(){try{const saved=JSON.parse(localStorage.getItem(demoKey)||'null');if(saved&&Array.isArray(saved.pages)&&Array.isArray(saved.blocks)){state.pages=saved.pages;state.blocks=saved.blocks;state.images=new Map(Array.isArray(saved.images)?saved.images:[])}else{state.pages=[seedPage()];state.blocks=seedBlocks();saveDemo()}}catch{state.pages=[seedPage()];state.blocks=seedBlocks()}state.ready=true;state.blocksLoaded=true;const route=readRoute();state.screen=route.screen;state.current=(route.page&&pageById(route.page)?route.page:null)||children(null)[0]?.id||state.pages[0]?.id||null;render()}
 function pagesColl(){return fb.collection(fb.db,'spaces',space,'pages')}
 function blocksColl(){return fb.collection(fb.db,'spaces',space,'blocks')}
 async function initCloud(){
@@ -148,8 +262,14 @@ async function initCloud(){
   },err=>showError('페이지 동기화 실패: '+err.message)));
   state.listen.push(d.onSnapshot(blocksColl(),snap=>{
    state.blocks=snap.docs.map(x=>({id:x.id,...x.data()})).sort(sortByOrder);
+    state.blocksLoaded=true;
     for(const [key,draft] of state.drafts)if(key.startsWith('blocks:')){const i=state.blocks.findIndex(b=>b.id===draft.id);if(i>=0)state.blocks[i]=draft;else state.blocks.push(draft);}
-   if(state.ready){render();refreshImages()}
+   if(state.ready){
+     render();refreshImages();
+     if(richController?.pageId===state.current){
+      try{richController.onRemote(readRichDocument(state.current))}catch(err){console.warn('Rich document sync incomplete',err)}
+     }
+    }
   },err=>showError('본문 동기화 실패: '+err.message)));
  }catch(err){showError('Firebase 연결에 실패했습니다: '+err.message)}
 }
@@ -296,11 +416,12 @@ function editorPage(){
  '<input class="title-input" data-title="'+e(p.id)+'" value="'+e(p.title)+'" placeholder="제목 없음" aria-label="페이지 제목">'+
  '<div class="page-meta">마지막 수정 '+stamp(p.updatedAt)+' · 변경 사항 자동 저장</div>'+
  (state.mode==='demo'?'<div class="notice">체험 모드: 작성 내용은 이 브라우저에만 저장됩니다. 다른 사람과 함께 편집하려면 Firebase를 연결해야 합니다.</div>':'')+
- '<section class="blocks">'+(pageBlocks(p.id).map(blockHTML).join('')||'<button type="button" class="empty-editor" data-action="start-writing">클릭해서 글쓰기를 시작하세요. / 명령어도 사용할 수 있어요.</button>')+'</section>'+
- '<div class="editor-footer"><button type="button" class="continue-writing" data-action="add-block">여기를 클릭해 계속 작성…</button><button type="button" class="editor-tool" data-action="copy-document">전체 내용 복사</button><button type="button" class="editor-tool" data-action="inline-page">하위 페이지</button><button type="button" class="editor-tool" data-action="upload-image">이미지</button></div>'+
+ '<section class="blocks rich-blocks"><div id="folio-rich-host" data-page="'+e(p.id)+'">'+
+ (state.blocksLoaded?'편집기를 불러오는 중…':'기존 문서를 불러오는 중…')+'</div></section>'+
+ '<div class="editor-footer rich-editor-footer"><span>문단을 가로질러 선택 · 표와 굵은 글씨 · / 명령 메뉴 · 자동 저장</span></div>'+
  '<div class="page-actions"><button class="page-action" data-new-child="'+e(p.id)+'">＋ 하위 페이지 만들기</button><button class="page-action" data-action="move-page">↳ 상위 페이지 변경</button><button class="page-action" data-action="delete-page">🗑 페이지 삭제</button></div>'+
  (descendants.length?'<div class="child-pages"><h2>하위 페이지</h2>'+descendants.map(x=>'<button class="child-link" data-page="'+e(x.id)+'">'+iconFor(x)+' '+e(x.title||'제목 없음')+'</button>').join('')+'</div>':'')+
- '<p class="editor-hint">Enter 다음 문단 · Shift+Enter 줄바꿈 · / 서식과 기능 · 여러 문단 붙여넣기 지원</p></div>';
+ '<p class="editor-hint">기존 팀원 자료는 보존됩니다. 첫 수정부터 새 편집기 형식으로 따로 저장해요. 동시 수정 충돌이 발생하면 자동 저장을 중지하고 알려줍니다.</p></div>';
 }
 function allPages(){
  const sorted=[...state.pages].sort(sortByOrder);
@@ -320,13 +441,24 @@ function render(force=false){
   app.innerHTML=state.error?'<div class="error"><h2>연결 오류</h2><p>'+e(state.error)+'</p><p>Firebase 설정·익명 인증·Firestore 규칙을 확인하세요.</p><button onclick="location.reload()">새로고침</button></div>':'<div class="boot">워크스페이스를 불러오는 중…</div>';
   return
  }
- if(!force&&isEditing()){refreshImages();return;}
+ if(!force&&(isEditing()||richController?.focused())){refreshImages();return;}
+ let preserved=null;
+ if(richController?.pageId===state.current&&state.screen==='page'){
+  const old=app.querySelector('#folio-rich-host');
+  if(old){preserved=old;old.remove()}
+ }
  const p=state.screen==='page'?pageById(state.current):null;
  app.innerHTML='<div class="layout">'+sidebar()+'<main class="main">'+topbar(p)+(state.screen==='search'?searchPage():state.screen==='all'?allPages():editorPage())+'</main></div>';
+ if(preserved){
+  const replacement=app.querySelector('#folio-rich-host');
+  if(replacement)replacement.replaceWith(preserved)
+ }
  bind();app.querySelectorAll('textarea.block-input').forEach(autoSize);refreshImages();
+ if(state.screen==='page')void ensureRich();
 }
 function showPage(id){
  if(!pageById(id))return;
+ disposeRich();
  flushPendingWrites();
  if(state.screen!=='page'||state.current!==id)saveOriginRoute();
  state.current=id;state.screen='page';state.sidebarOpen=false;state.menu=null;
