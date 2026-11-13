@@ -2,7 +2,7 @@
 
 GitHub Pages + Firebase로 만든 노션형 공동 편집 워크스페이스입니다.
 
-배포 예정 주소: https://imhyeonwoo.github.io/Samsung-Share-Note/
+배포 예정 주소: https://imhyeonwoo.github.io/Share-Note/
 
 ## 2026-11-11 편집기 안정성 수정
 
